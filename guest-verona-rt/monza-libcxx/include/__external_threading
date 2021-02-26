@@ -1,0 +1,98 @@
+// Copyright Microsoft and Project Monza Contributors.
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <__config>
+#include <cstddef>
+#include <cstdint>
+#include <chrono>
+#include <thread.h>
+
+struct CustomMutex
+{
+  uint64_t bytes[4];
+};
+struct CustomRecursiveMutex
+{
+  uint64_t bytes[4];
+};
+struct CustomConditionVariable
+{
+  uint64_t bytes[4];
+};
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+// Mutex
+typedef ::CustomMutex __libcpp_mutex_t;
+#define _LIBCPP_MUTEX_INITIALIZER {}
+int __libcpp_mutex_lock(__libcpp_mutex_t* m);
+bool __libcpp_mutex_trylock(__libcpp_mutex_t* m);
+int __libcpp_mutex_unlock(__libcpp_mutex_t* m);
+int __libcpp_mutex_destroy(__libcpp_mutex_t*);
+
+// Recursive mutex
+// Recursive mutexes are not implemented, but the declarations are needed by the headers.
+typedef ::CustomRecursiveMutex __libcpp_recursive_mutex_t;
+#define _LIBCPP_RECURSIVE_MUTEX_INITIALIZER {}
+int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t* m);
+int __libcpp_recursive_mutex_lock(__libcpp_recursive_mutex_t* m);
+bool __libcpp_recursive_mutex_trylock(__libcpp_recursive_mutex_t* m);
+int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t* m);
+int __libcpp_recursive_mutex_destroy(__libcpp_recursive_mutex_t*);
+
+// Condition variable
+typedef ::CustomConditionVariable __libcpp_condvar_t;
+#define _LIBCPP_CONDVAR_INITIALIZER {}
+int __libcpp_condvar_signal(__libcpp_condvar_t* cv);
+int __libcpp_condvar_broadcast(__libcpp_condvar_t* cv);
+int __libcpp_condvar_wait(__libcpp_condvar_t* cv, __libcpp_mutex_t* m);
+int __libcpp_condvar_destroy(__libcpp_condvar_t*);
+
+// Thread
+typedef monza::monza_thread_t __libcpp_thread_id;
+inline __libcpp_thread_id __libcpp_thread_get_current_id()
+{
+  return monza::get_thread_id();
+}
+inline bool __libcpp_thread_id_equal(__libcpp_thread_id t1, __libcpp_thread_id t2)
+{
+  return t1 == t2;
+}
+inline bool __libcpp_thread_id_less(__libcpp_thread_id t1, __libcpp_thread_id t2)
+{
+  return t1 < t2;
+}
+
+// Thread-local storage
+typedef uint16_t __libcpp_tls_key;
+#define _LIBCPP_TLS_DESTRUCTOR_CC
+inline int __libcpp_tls_create(__libcpp_tls_key* key,
+                        void(_LIBCPP_TLS_DESTRUCTOR_CC* at_exit)(void*))
+{
+  return monza::allocate_tls_slot(key) ? 0 : -1;
+}
+
+inline void* __libcpp_tls_get(__libcpp_tls_key key)
+{
+  return monza::get_tls_slot(key);
+}
+
+inline int __libcpp_tls_set(__libcpp_tls_key key, void* p)
+{
+  return monza::set_tls_slot(key, p) ? 0 : -1;
+}
+
+// Execute once
+typedef unsigned int __libcpp_exec_once_flag;
+#define _LIBCPP_EXEC_ONCE_INITIALIZER (0)
+int __libcpp_execute_once(__libcpp_exec_once_flag *flag, void (*init_routine)(void));
+int __libcpp_execute_once(__libcpp_exec_once_flag *flag, void* arg, void (*init_routine)(void*));
+
+// Sleep and yield
+typedef timespec __libcpp_timespec_t;
+inline void __libcpp_thread_sleep_for(const chrono::nanoseconds& __ns) { }
+inline void __libcpp_thread_yield() { }
+
+_LIBCPP_END_NAMESPACE_STD

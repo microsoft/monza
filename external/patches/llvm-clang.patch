@@ -1,0 +1,1061 @@
+diff --git a/clang/include/clang/Basic/Attr.td b/clang/include/clang/Basic/Attr.td
+index 12d09181a2ea..9ef420520280 100644
+--- a/clang/include/clang/Basic/Attr.td
++++ b/clang/include/clang/Basic/Attr.td
+@@ -88,6 +88,9 @@ def NonParmVar : SubsetSubject<Var,
+ def NonLocalVar : SubsetSubject<Var,
+                                 [{!S->hasLocalStorage()}],
+                                 "variables with non-local storage">;
++def StaticLocalVar : SubsetSubject<Var, 
++                                [{S->isStaticLocal()}],
++                                "static local variables">;
+ def NonBitField : SubsetSubject<Field,
+                                 [{!S->isBitField()}],
+                                 "non-bit-field non-static data members">;
+@@ -389,6 +392,10 @@ def TargetELF : TargetSpec {
+ def TargetSupportsInitPriority : TargetSpec {
+   let CustomCode = [{ !Target.getTriple().isOSzOS() }];
+ }
++def TargetMonza : TargetSpec {
++  let CustomCode = [{ T.isOSMonza() }];
++}
++
+ // Attribute subject match rules that are used for #pragma clang attribute.
+ //
+ // A instance of AttrSubjectMatcherRule represents an individual match rule.
+@@ -3823,3 +3830,11 @@ def EnforceTCBLeaf : InheritableAttr {
+   let Documentation = [EnforceTCBLeafDocs];
+   bit InheritEvenIfAlreadyPresent = 1;
+ }
++
++// 
++def MonzaGlobal : InheritableAttr, TargetSpecificAttr<TargetMonza> {
++  let Spellings = [Clang<"monza_global">];
++  let Subjects = SubjectList<[GlobalVar, StaticLocalVar], ErrorDiag>;
++  let Documentation = [MonzaGlobalDocs];
++  let SimpleHandler = 1;
++}
+\ No newline at end of file
+diff --git a/clang/include/clang/Basic/AttrDocs.td b/clang/include/clang/Basic/AttrDocs.td
+index c265a877e3b1..d85c0514449c 100644
+--- a/clang/include/clang/Basic/AttrDocs.td
++++ b/clang/include/clang/Basic/AttrDocs.td
+@@ -6045,3 +6045,13 @@ def EnforceTCBLeafDocs : Documentation {
+   - ``enforce_tcb_leaf(Name)`` indicates that this function is a part of the TCB named ``Name``
+   }];
+ }
++
++def MonzaGlobalDocs : Documentation {
++  let Category = DocCatVariable;
++  let Content = [{
++  This attribute mandates that the marked global variable should not be
++  placed in TLS.
++
++  This attribute only applies to Monza targets.
++  }];
++}
+\ No newline at end of file
+diff --git a/clang/include/clang/Basic/CodeGenOptions.def b/clang/include/clang/Basic/CodeGenOptions.def
+index e3202cf88756..a1a03fa664de 100644
+--- a/clang/include/clang/Basic/CodeGenOptions.def
++++ b/clang/include/clang/Basic/CodeGenOptions.def
+@@ -437,6 +437,9 @@ CODEGENOPT(AAPCSBitfieldWidth, 1, 1)
+ /// propagate signaling NaN inputs per IEEE 754-2008 (AMDGPU Only)
+ CODEGENOPT(EmitIEEENaNCompliantInsts, 1, 1)
+ 
++/// Set of we are in a kernel build.
++CODEGENOPT(IsCompartment, 1, 0)
++
+ #undef CODEGENOPT
+ #undef ENUM_CODEGENOPT
+ #undef VALUE_CODEGENOPT
+diff --git a/clang/include/clang/Basic/TargetCXXABI.def b/clang/include/clang/Basic/TargetCXXABI.def
+index 9501cca76094..cac24eb139ff 100644
+--- a/clang/include/clang/Basic/TargetCXXABI.def
++++ b/clang/include/clang/Basic/TargetCXXABI.def
+@@ -116,6 +116,10 @@ ITANIUM_CXXABI(Fuchsia, "fuchsia")
+ ///   - static initialization is adjusted to use sinit and sterm functions;
+ ITANIUM_CXXABI(XL, "xl")
+ 
++/// The Monza C++ ABI.  This is a modified C++ ABI designed for a system
++/// without dynamic loading in the global namespace.
++ITANIUM_CXXABI(Monza, "monza")
++
+ /// The Microsoft ABI is the ABI used by Microsoft Visual Studio (and
+ /// compatible compilers).
+ ///
+diff --git a/clang/include/clang/Basic/TargetCXXABI.h b/clang/include/clang/Basic/TargetCXXABI.h
+index e727f85edad7..cd7b827167ff 100644
+--- a/clang/include/clang/Basic/TargetCXXABI.h
++++ b/clang/include/clang/Basic/TargetCXXABI.h
+@@ -99,6 +99,9 @@ public:
+     case Fuchsia:
+       return T.isOSFuchsia();
+ 
++    case Monza:
++      return T.isOSMonza();
++
+     case GenericAArch64:
+       return T.isAArch64();
+ 
+@@ -172,6 +175,7 @@ public:
+       //       special alignment and could therefore also return false.
+     case GenericItanium:
+     case iOS:
++    case Monza:
+     case WatchOS:
+     case Microsoft:
+     case XL:
+@@ -242,6 +246,7 @@ public:
+     case AppleARM64:
+     case Fuchsia:
+     case GenericARM:
++    case Monza:
+     case WebAssembly:
+     case WatchOS:
+       return false;
+@@ -296,6 +301,7 @@ public:
+     // the Itanium exception about classes with over-large bitfields.
+     case AppleARM64:
+     case Fuchsia:
++    case Monza:
+     case WebAssembly:
+     case WatchOS:
+       return UseTailPaddingUnlessPOD11;
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index a0cbcae0bdc3..f8d7b70ca371 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -3092,6 +3092,7 @@ def mios_version_min_EQ : Joined<["-"], "mios-version-min=">,
+ def mios_simulator_version_min_EQ : Joined<["-"], "mios-simulator-version-min=">;
+ def miphonesimulator_version_min_EQ : Joined<["-"], "miphonesimulator-version-min=">, Alias<mios_simulator_version_min_EQ>;
+ def mkernel : Flag<["-"], "mkernel">, Group<m_Group>;
++def mcompartment : Flag<["-"], "mcompartment">, Group<m_Group>, MarshallingInfoFlag<CodeGenOpts<"IsCompartment">>, Flags<[CC1Option]>;
+ def mlinker_version_EQ : Joined<["-"], "mlinker-version=">,
+   Flags<[NoXarchOption]>;
+ def mllvm : Separate<["-"], "mllvm">, Flags<[CC1Option,CC1AsOption,CoreOption]>,
+diff --git a/clang/lib/AST/ASTContext.cpp b/clang/lib/AST/ASTContext.cpp
+index 0e163f3161a3..13737c51c3cc 100644
+--- a/clang/lib/AST/ASTContext.cpp
++++ b/clang/lib/AST/ASTContext.cpp
+@@ -891,6 +891,7 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
+   switch (getCXXABIKind()) {
+   case TargetCXXABI::AppleARM64:
+   case TargetCXXABI::Fuchsia:
++  case TargetCXXABI::Monza:
+   case TargetCXXABI::GenericARM: // Same as Itanium at this level
+   case TargetCXXABI::iOS:
+   case TargetCXXABI::WatchOS:
+@@ -11109,6 +11110,7 @@ MangleContext *ASTContext::createMangleContext(const TargetInfo *T) {
+   switch (T->getCXXABI().getKind()) {
+   case TargetCXXABI::AppleARM64:
+   case TargetCXXABI::Fuchsia:
++  case TargetCXXABI::Monza:
+   case TargetCXXABI::GenericAArch64:
+   case TargetCXXABI::GenericItanium:
+   case TargetCXXABI::GenericARM:
+@@ -11135,6 +11137,7 @@ MangleContext *ASTContext::createDeviceMangleContext(const TargetInfo &T) {
+   case TargetCXXABI::GenericARM:
+   case TargetCXXABI::GenericMIPS:
+   case TargetCXXABI::iOS:
++  case TargetCXXABI::Monza:
+   case TargetCXXABI::WebAssembly:
+   case TargetCXXABI::WatchOS:
+   case TargetCXXABI::XL:
+diff --git a/clang/lib/Basic/Targets.cpp b/clang/lib/Basic/Targets.cpp
+index ba91d0439968..044e15f3fcd6 100644
+--- a/clang/lib/Basic/Targets.cpp
++++ b/clang/lib/Basic/Targets.cpp
+@@ -145,6 +145,8 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
+       return new FuchsiaTargetInfo<AArch64leTargetInfo>(Triple, Opts);
+     case llvm::Triple::Linux:
+       return new LinuxTargetInfo<AArch64leTargetInfo>(Triple, Opts);
++    case llvm::Triple::Monza:
++      return new MonzaTargetInfo<AArch64leTargetInfo>(Triple, Opts);
+     case llvm::Triple::NetBSD:
+       return new NetBSDTargetInfo<AArch64leTargetInfo>(Triple, Opts);
+     case llvm::Triple::OpenBSD:
+@@ -561,6 +563,8 @@ TargetInfo *AllocateTarget(const llvm::Triple &Triple,
+     }
+     case llvm::Triple::DragonFly:
+       return new DragonFlyBSDTargetInfo<X86_64TargetInfo>(Triple, Opts);
++    case llvm::Triple::Monza:
++      return new MonzaTargetInfo<X86_64TargetInfo>(Triple, Opts);
+     case llvm::Triple::NetBSD:
+       return new NetBSDTargetInfo<X86_64TargetInfo>(Triple, Opts);
+     case llvm::Triple::OpenBSD:
+diff --git a/clang/lib/Basic/Targets/OSTargets.h b/clang/lib/Basic/Targets/OSTargets.h
+index 12df95c19f35..ed99ba795cfd 100644
+--- a/clang/lib/Basic/Targets/OSTargets.h
++++ b/clang/lib/Basic/Targets/OSTargets.h
+@@ -897,6 +897,25 @@ public:
+   }
+ };
+ 
++// Monza Target
++template <typename Target>
++class LLVM_LIBRARY_VISIBILITY MonzaTargetInfo : public OSTargetInfo<Target> {
++protected:
++  void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
++                    MacroBuilder &Builder) const override {
++    Builder.defineMacro("__Monza__");
++    Builder.defineMacro("__ELF__");
++    Builder.defineMacro("_REENTRANT");
++  }
++
++public:
++  MonzaTargetInfo(const llvm::Triple &Triple, const TargetOptions &Opts)
++      : OSTargetInfo<Target>(Triple, Opts) {
++    this->MCountName = "__mcount";
++    this->TheCXXABI.set(TargetCXXABI::Monza);
++  }
++};
++
+ // WebAssembly target
+ template <typename Target>
+ class LLVM_LIBRARY_VISIBILITY WebAssemblyOSTargetInfo
+diff --git a/clang/lib/CodeGen/BackendUtil.cpp b/clang/lib/CodeGen/BackendUtil.cpp
+index 481f5347d978..a16e4965cfdb 100644
+--- a/clang/lib/CodeGen/BackendUtil.cpp
++++ b/clang/lib/CodeGen/BackendUtil.cpp
+@@ -79,6 +79,7 @@
+ #include "llvm/Transforms/Scalar.h"
+ #include "llvm/Transforms/Scalar/EarlyCSE.h"
+ #include "llvm/Transforms/Scalar/GVN.h"
++#include "llvm/Transforms/Scalar/MonzaCompartment.h"
+ #include "llvm/Transforms/Scalar/LowerMatrixIntrinsics.h"
+ #include "llvm/Transforms/Utils.h"
+ #include "llvm/Transforms/Utils/CanonicalizeAliases.h"
+@@ -1322,7 +1323,13 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
+ 
+   ModulePassManager MPM;
+ 
++
++
+   if (!CodeGenOpts.DisableLLVMPasses) {
++    if (CodeGenOpts.IsCompartment && TargetTriple.isOSMonza())
++      PB.registerPipelineStartEPCallback(
++        [](ModulePassManager &MPM, auto) {
++              MPM.addPass( MonzaCompartmentPass()); });
+     // Map our optimization levels into one of the distinct levels used to
+     // configure the pipeline.
+     PassBuilder::OptimizationLevel Level = mapToLevel(CodeGenOpts);
+diff --git a/clang/lib/CodeGen/CGDecl.cpp b/clang/lib/CodeGen/CGDecl.cpp
+index 5b3d39f20b41..7ff554092c78 100644
+--- a/clang/lib/CodeGen/CGDecl.cpp
++++ b/clang/lib/CodeGen/CGDecl.cpp
+@@ -278,6 +278,9 @@ llvm::Constant *CodeGenModule::getOrCreateStaticVarDecl(
+ 
+   if (D.getTLSKind())
+     setTLSMode(GV, D);
++  if (D.hasAttr<MonzaGlobalAttr>()) {
++    GV->addAttribute(llvm::Attribute::MonzaGlobal);
++  }
+ 
+   setGVProperties(GV, &D);
+ 
+@@ -433,6 +436,8 @@ void CodeGenFunction::EmitStaticVarDecl(const VarDecl &D,
+ 
+   if (D.hasAttr<AnnotateAttr>())
+     CGM.AddGlobalAnnotations(&D, var);
++  if (D.hasAttr<MonzaGlobalAttr>())
++    var->addAttribute(llvm::Attribute::MonzaGlobal);
+ 
+   if (auto *SA = D.getAttr<PragmaClangBSSSectionAttr>())
+     var->addAttribute("bss-section", SA->getName());
+diff --git a/clang/lib/CodeGen/CodeGenModule.cpp b/clang/lib/CodeGen/CodeGenModule.cpp
+index 49a1396b58e3..7cd229489dc2 100644
+--- a/clang/lib/CodeGen/CodeGenModule.cpp
++++ b/clang/lib/CodeGen/CodeGenModule.cpp
+@@ -78,6 +78,7 @@ static CGCXXABI *createCXXABI(CodeGenModule &CGM) {
+   switch (CGM.getContext().getCXXABIKind()) {
+   case TargetCXXABI::AppleARM64:
+   case TargetCXXABI::Fuchsia:
++  case TargetCXXABI::Monza:
+   case TargetCXXABI::GenericAArch64:
+   case TargetCXXABI::GenericARM:
+   case TargetCXXABI::iOS:
+@@ -3931,6 +3932,10 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName, llvm::Type *Ty,
+       setTLSMode(GV, *D);
+     }
+ 
++    if (D->hasAttr<MonzaGlobalAttr>()) {
++      GV->addAttribute(llvm::Attribute::MonzaGlobal);
++    }
++
+     setGVProperties(GV, D);
+ 
+     // If required by the ABI, treat declarations of static data members with
+diff --git a/clang/lib/CodeGen/ItaniumCXXABI.cpp b/clang/lib/CodeGen/ItaniumCXXABI.cpp
+index d3dc0e6212b8..ba8a47b2f5e4 100644
+--- a/clang/lib/CodeGen/ItaniumCXXABI.cpp
++++ b/clang/lib/CodeGen/ItaniumCXXABI.cpp
+@@ -515,6 +515,16 @@ private:
+   }
+ };
+ 
++
++/**
++ * Monza C++ ABI.  This is currently identical to the Itanium ABI, but is here
++ * as an expansion point for when we decide to change it later.
++ */
++class MonzaCXXABI final : public ItaniumCXXABI {
++public:
++  explicit MonzaCXXABI(CodeGen::CodeGenModule &CGM) : ItaniumCXXABI(CGM) {}
++};
++
+ class WebAssemblyCXXABI final : public ItaniumCXXABI {
+ public:
+   explicit WebAssemblyCXXABI(CodeGen::CodeGenModule &CGM)
+@@ -566,6 +576,9 @@ CodeGen::CGCXXABI *CodeGen::CreateItaniumCXXABI(CodeGenModule &CGM) {
+   case TargetCXXABI::Fuchsia:
+     return new FuchsiaCXXABI(CGM);
+ 
++  case TargetCXXABI::Monza:
++    return new MonzaCXXABI(CGM);
++
+   // Note that AArch64 uses the generic ItaniumCXXABI class since it doesn't
+   // include the other 32-bit ARM oddities: constructor/destructor return values
+   // and array cookies.
+diff --git a/clang/lib/Driver/CMakeLists.txt b/clang/lib/Driver/CMakeLists.txt
+index 08be9f0115a1..a5c5b02043ad 100644
+--- a/clang/lib/Driver/CMakeLists.txt
++++ b/clang/lib/Driver/CMakeLists.txt
+@@ -59,6 +59,7 @@ add_clang_library(clangDriver
+   ToolChains/MipsLinux.cpp
+   ToolChains/MinGW.cpp
+   ToolChains/Minix.cpp
++  ToolChains/Monza.cpp
+   ToolChains/MSP430.cpp
+   ToolChains/MSVC.cpp
+   ToolChains/Myriad.cpp
+diff --git a/clang/lib/Driver/Driver.cpp b/clang/lib/Driver/Driver.cpp
+index 94a7553e273b..80dba24cc701 100644
+--- a/clang/lib/Driver/Driver.cpp
++++ b/clang/lib/Driver/Driver.cpp
+@@ -29,6 +29,7 @@
+ #include "ToolChains/Hurd.h"
+ #include "ToolChains/Lanai.h"
+ #include "ToolChains/Linux.h"
++#include "ToolChains/Monza.h"
+ #include "ToolChains/MSP430.h"
+ #include "ToolChains/MSVC.h"
+ #include "ToolChains/MinGW.h"
+@@ -5299,6 +5300,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
+     case llvm::Triple::Fuchsia:
+       TC = std::make_unique<toolchains::Fuchsia>(*this, Target, Args);
+       break;
++    case llvm::Triple::Monza:
++      TC = std::make_unique<toolchains::Monza>(*this, Target, Args);
++      break;
+     case llvm::Triple::Solaris:
+       TC = std::make_unique<toolchains::Solaris>(*this, Target, Args);
+       break;
+diff --git a/clang/lib/Driver/ToolChains/Monza.cpp b/clang/lib/Driver/ToolChains/Monza.cpp
+new file mode 100644
+index 000000000000..9f7de9183651
+--- /dev/null
++++ b/clang/lib/Driver/ToolChains/Monza.cpp
+@@ -0,0 +1,42 @@
++//===----------- Monza.cpp - Monza ToolChain --------------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "Monza.h"
++
++#include "CommonArgs.h"
++#include "Gnu.h"
++
++#include "Arch/RISCV.h"
++#include "clang/Driver/Compilation.h"
++#include "clang/Driver/Driver.h"
++#include "clang/Driver/DriverDiagnostic.h"
++#include "clang/Driver/InputInfo.h"
++#include "clang/Driver/Options.h"
++#include "llvm/Option/ArgList.h"
++#include "llvm/Support/Path.h"
++#include "llvm/Support/VirtualFileSystem.h"
++#include "llvm/Support/raw_ostream.h"
++
++using namespace llvm::opt;
++using namespace clang;
++using namespace clang::driver;
++using namespace clang::driver::tools;
++using namespace clang::driver::toolchains;
++
++Monza::Monza(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
++    : BareMetal(D, Triple, Args),
++      IsCompartment(Args.getLastArg(options::OPT_mcompartment)) {}
++
++void Monza::addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
++                                  llvm::opt::ArgStringList &CC1Args,
++                                  Action::OffloadKind DeviceOffloadKind) const {
++  BareMetal::addClangTargetOptions(DriverArgs, CC1Args, DeviceOffloadKind);
++  if (IsCompartment) {
++    CC1Args.push_back("-mcompartment");
++  }
++}
+diff --git a/clang/lib/Driver/ToolChains/Monza.h b/clang/lib/Driver/ToolChains/Monza.h
+new file mode 100644
+index 000000000000..7540f052e197
+--- /dev/null
++++ b/clang/lib/Driver/ToolChains/Monza.h
+@@ -0,0 +1,47 @@
++//===----------- Monza.h - Monza Tool and ToolChain -------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_MONZA_H
++#define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_MONZA_H
++
++#include "BareMetal.h"
++
++#include <string>
++
++namespace clang {
++namespace driver {
++
++namespace toolchains {
++
++class LLVM_LIBRARY_VISIBILITY Monza : public BareMetal {
++  bool IsCompartment;
++
++public:
++  Monza(const Driver &D, const llvm::Triple &Triple,
++        const llvm::opt::ArgList &Args);
++
++protected:
++  bool IsMathErrnoDefault() const override { return false; }
++
++  bool useRelaxRelocations() const override { return true; }
++
++  bool isNoExecStackDefault() const override { return true; }
++
++  void
++  addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
++                        llvm::opt::ArgStringList &CC1Args,
++                        Action::OffloadKind DeviceOffloadKind) const override;
++
++public:
++};
++
++} // namespace toolchains
++} // namespace driver
++} // namespace clang
++
++#endif
+diff --git a/clang/lib/Sema/SemaDeclAttr.cpp b/clang/lib/Sema/SemaDeclAttr.cpp
+index bb4ce8d4962e..5eebdc0fb62a 100644
+--- a/clang/lib/Sema/SemaDeclAttr.cpp
++++ b/clang/lib/Sema/SemaDeclAttr.cpp
+@@ -8438,6 +8438,11 @@ static void ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D,
+   case ParsedAttr::AT_UsingIfExists:
+     handleSimpleAttribute<UsingIfExistsAttr>(S, D, AL);
+     break;
++
++  case ParsedAttr::AT_MonzaGlobal:
++    S.Diag(AL.getLoc(), diag::note_declared_at) << AL <<  D->getLocation();
++    handleSimpleAttribute<MonzaGlobalAttr>(S, D, AL);
++    break;
+   }
+ }
+ 
+diff --git a/clang/test/CodeGen/monza-attr.c b/clang/test/CodeGen/monza-attr.c
+new file mode 100644
+index 000000000000..6fa8e2a0a4fc
+--- /dev/null
++++ b/clang/test/CodeGen/monza-attr.c
+@@ -0,0 +1,23 @@
++// RUN: %clang_cc1 -triple x86_64-microsoft-monza -mrelocation-model static %s -emit-llvm -o - | FileCheck -check-prefix=KERNEL %s
++// RUN: %clang_cc1 -triple x86_64-microsoft-monza -mrelocation-model static -mcompartment %s -emit-llvm -o - | FileCheck -check-prefix=COMPARTMENT %s
++
++// Check that Monza respects the monza_global attribute
++
++int foo = 12;
++int bar __attribute__((monza_global)) = 42;
++
++// KERNEL:  @foo = dso_local global i32 12, align 4
++// KERNEL:  @bar = dso_local global i32 42, align 4
++// COMPARTMENT: @foo = hidden thread_local(initialexec) global i32 12, align 4
++// COMPARTMENT: @bar = dso_local global i32 42, align 4
++
++// KERNEL: @fg.a = internal global i32 12, align 4
++// KERNEL: @fg.b = internal global i32 42, align 4
++// COMPARTMENT: @fg.a = internal thread_local(initialexec) global i32 12, align 4
++// COMPARTMENT: @fg.b = internal global i32 42, align 4
++int fg() { 
++  static int a = 12;
++  static int b __attribute__((monza_global)) = 42;
++
++  return a + b;
++}
+diff --git a/clang/test/CodeGen/monza.c b/clang/test/CodeGen/monza.c
+new file mode 100644
+index 000000000000..b98ff9237fd9
+--- /dev/null
++++ b/clang/test/CodeGen/monza.c
+@@ -0,0 +1,19 @@
++// RUN: %clang_cc1 -triple x86_64-microsoft-monza -mrelocation-model static %s -emit-llvm -o - | FileCheck -check-prefix=KERNEL %s
++// RUN: %clang_cc1 -triple x86_64-microsoft-monza -mrelocation-model static -mcompartment %s -emit-llvm -o - | FileCheck -check-prefix=COMPARTMENT %s
++
++// Check that Monza provides the correct linkage types for globals in kernel and compartment modes.
++
++int foo = 12;
++const int bar = 42;
++__thread int baz = 2;
++
++// KERNEL:  @foo = dso_local global i32 12, align 4
++// KERNEL:  @bar = dso_local constant i32 42, align 4
++// KERNEL:  @baz = dso_local thread_local global i32 2, align 4
++// COMPARTMENT: @foo = hidden thread_local(initialexec) global i32 12, align 4
++// COMPARTMENT: @bar = hidden constant i32 42, align 4
++// COMPARTMENT: @baz = hidden thread_local(initialexec) global i32 2, align 4
++
++// KERNEL: define dso_local i32 @fg() #0 {
++// COMPARTMENT: define hidden i32 @fg() #0 {
++int fg() { return foo + bar; }
+diff --git a/llvm/include/llvm/ADT/Triple.h b/llvm/include/llvm/ADT/Triple.h
+index 76f3514050f0..1a292242b061 100644
+--- a/llvm/include/llvm/ADT/Triple.h
++++ b/llvm/include/llvm/ADT/Triple.h
+@@ -182,6 +182,7 @@ public:
+     ZOS,
+     Haiku,
+     Minix,
++    Monza,
+     RTEMS,
+     NaCl,       // Native Client
+     AIX,
+@@ -511,6 +512,10 @@ public:
+     return getOS() == Triple::FreeBSD;
+   }
+ 
++  bool isOSMonza() const {
++    return getOS() == Triple::Monza;
++  }
++
+   bool isOSFuchsia() const {
+     return getOS() == Triple::Fuchsia;
+   }
+diff --git a/llvm/include/llvm/AsmParser/LLToken.h b/llvm/include/llvm/AsmParser/LLToken.h
+index aa49c68fe924..bbe03178fa46 100644
+--- a/llvm/include/llvm/AsmParser/LLToken.h
++++ b/llvm/include/llvm/AsmParser/LLToken.h
+@@ -256,6 +256,7 @@ enum Kind {
+   kw_opaque,
+ 
+   kw_comdat,
++  kw_monzaglobal,
+ 
+   // Comdat types
+   kw_any,
+diff --git a/llvm/include/llvm/Bitcode/LLVMBitCodes.h b/llvm/include/llvm/Bitcode/LLVMBitCodes.h
+index 28870afb2fcb..18e81aa8075d 100644
+--- a/llvm/include/llvm/Bitcode/LLVMBitCodes.h
++++ b/llvm/include/llvm/Bitcode/LLVMBitCodes.h
+@@ -671,6 +671,7 @@ enum AttributeKindCodes {
+   ATTR_KIND_SWIFT_ASYNC = 75,
+   ATTR_KIND_NO_SANITIZE_COVERAGE = 76,
+   ATTR_KIND_ELEMENTTYPE = 77,
++  ATTR_KIND_MONZAGLOBAL = 78,
+ };
+ 
+ enum ComdatSelectionKindCodes {
+diff --git a/llvm/include/llvm/IR/Attributes.td b/llvm/include/llvm/IR/Attributes.td
+index 99b474161df7..3980edbf1cc9 100644
+--- a/llvm/include/llvm/IR/Attributes.td
++++ b/llvm/include/llvm/IR/Attributes.td
+@@ -109,6 +109,9 @@ def InReg : EnumAttr<"inreg", [ParamAttr, RetAttr]>;
+ /// Build jump-instruction tables and replace refs.
+ def JumpTable : EnumAttr<"jumptable", [FnAttr]>;
+ 
++/// Prevent converting globals to TLS
++def MonzaGlobal : EnumAttr<"monzaglobal", [FnAttr, ParamAttr]>;
++
+ /// Function must be optimized for size first.
+ def MinSize : EnumAttr<"minsize", [FnAttr]>;
+ 
+diff --git a/llvm/include/llvm/Transforms/Scalar/MonzaCompartment.h b/llvm/include/llvm/Transforms/Scalar/MonzaCompartment.h
+new file mode 100644
+index 000000000000..0b0cc5f3b1b7
+--- /dev/null
++++ b/llvm/include/llvm/Transforms/Scalar/MonzaCompartment.h
+@@ -0,0 +1,30 @@
++//===- MonzaCompartment.h - Fix up IR for Monza compartments ----*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file provides the interface for the pass that fixes up IR to conform to
++// Monza's in-compartment ABI.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_TRANSFORMS_MONZA_COMPARTMENT_H
++#define LLVM_TRANSFORMS_MONZA_COMPARTMENT_H
++
++#include "llvm/IR/Function.h"
++#include "llvm/IR/PassManager.h"
++
++namespace llvm {
++
++/// Monza compartment pass
++class MonzaCompartmentPass : public PassInfoMixin<MonzaCompartmentPass> {
++public:
++  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
++};
++
++}
++
++#endif // LLVM_TRANSFORMS_MONZA_COMPARTMENT_H
+diff --git a/llvm/lib/AsmParser/LLLexer.cpp b/llvm/lib/AsmParser/LLLexer.cpp
+index 4f72c6f9921a..c1a651636478 100644
+--- a/llvm/lib/AsmParser/LLLexer.cpp
++++ b/llvm/lib/AsmParser/LLLexer.cpp
+@@ -650,6 +650,7 @@ lltok::Kind LLLexer::LexIdentifier() {
+   KEYWORD(inreg);
+   KEYWORD(jumptable);
+   KEYWORD(minsize);
++  KEYWORD(monzaglobal);
+   KEYWORD(naked);
+   KEYWORD(nest);
+   KEYWORD(noalias);
+diff --git a/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp b/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
+index 0a202c376981..f91a0702cfc8 100644
+--- a/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
++++ b/llvm/lib/Bitcode/Writer/BitcodeWriter.cpp
+@@ -764,6 +764,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
+     return bitc::ATTR_KIND_BYREF;
+   case Attribute::MustProgress:
+     return bitc::ATTR_KIND_MUSTPROGRESS;
++  case Attribute::MonzaGlobal:
++    return bitc::ATTR_KIND_MONZAGLOBAL;
+   case Attribute::EndAttrKinds:
+     llvm_unreachable("Can not encode end-attribute kinds marker.");
+   case Attribute::None:
+diff --git a/llvm/lib/Passes/PassBuilder.cpp b/llvm/lib/Passes/PassBuilder.cpp
+index 0bc955dbbfea..5ed9d62ace7c 100644
+--- a/llvm/lib/Passes/PassBuilder.cpp
++++ b/llvm/lib/Passes/PassBuilder.cpp
+@@ -190,6 +190,7 @@
+ #include "llvm/Transforms/Scalar/MemCpyOptimizer.h"
+ #include "llvm/Transforms/Scalar/MergeICmps.h"
+ #include "llvm/Transforms/Scalar/MergedLoadStoreMotion.h"
++#include "llvm/Transforms/Scalar/MonzaCompartment.h"
+ #include "llvm/Transforms/Scalar/NaryReassociate.h"
+ #include "llvm/Transforms/Scalar/NewGVN.h"
+ #include "llvm/Transforms/Scalar/PartiallyInlineLibCalls.h"
+diff --git a/llvm/lib/Passes/PassRegistry.def b/llvm/lib/Passes/PassRegistry.def
+index 7525d59f94a5..adf76fbece7e 100644
+--- a/llvm/lib/Passes/PassRegistry.def
++++ b/llvm/lib/Passes/PassRegistry.def
+@@ -79,6 +79,7 @@ MODULE_PASS("loop-extract", LoopExtractorPass())
+ MODULE_PASS("lowertypetests", LowerTypeTestsPass())
+ MODULE_PASS("metarenamer", MetaRenamerPass())
+ MODULE_PASS("mergefunc", MergeFunctionsPass())
++MODULE_PASS("monza-compartment", MonzaCompartmentPass())
+ MODULE_PASS("name-anon-globals", NameAnonGlobalPass())
+ MODULE_PASS("no-op-module", NoOpModulePass())
+ MODULE_PASS("objc-arc-apelim", ObjCARCAPElimPass())
+diff --git a/llvm/lib/Support/Triple.cpp b/llvm/lib/Support/Triple.cpp
+index 88311546354b..99ae8ee877ce 100644
+--- a/llvm/lib/Support/Triple.cpp
++++ b/llvm/lib/Support/Triple.cpp
+@@ -211,6 +211,7 @@ StringRef Triple::getOSTypeName(OSType Kind) {
+   case MacOSX: return "macosx";
+   case Mesa3D: return "mesa3d";
+   case Minix: return "minix";
++  case Monza: return "monza";
+   case NVCL: return "nvcl";
+   case NaCl: return "nacl";
+   case NetBSD: return "netbsd";
+@@ -521,6 +522,7 @@ static Triple::OSType parseOS(StringRef OSName) {
+     .StartsWith("zos", Triple::ZOS)
+     .StartsWith("haiku", Triple::Haiku)
+     .StartsWith("minix", Triple::Minix)
++    .StartsWith("monza", Triple::Monza)
+     .StartsWith("rtems", Triple::RTEMS)
+     .StartsWith("nacl", Triple::NaCl)
+     .StartsWith("aix", Triple::AIX)
+diff --git a/llvm/lib/Transforms/Scalar/CMakeLists.txt b/llvm/lib/Transforms/Scalar/CMakeLists.txt
+index 79559a4d14a0..0d338a9fa51f 100644
+--- a/llvm/lib/Transforms/Scalar/CMakeLists.txt
++++ b/llvm/lib/Transforms/Scalar/CMakeLists.txt
+@@ -57,6 +57,7 @@ add_llvm_component_library(LLVMScalarOpts
+   MemCpyOptimizer.cpp
+   MergeICmps.cpp
+   MergedLoadStoreMotion.cpp
++  MonzaCompartment.cpp
+   NaryReassociate.cpp
+   NewGVN.cpp
+   PartiallyInlineLibCalls.cpp
+diff --git a/llvm/lib/Transforms/Scalar/MonzaCompartment.cpp b/llvm/lib/Transforms/Scalar/MonzaCompartment.cpp
+new file mode 100644
+index 000000000000..0ee93bf4d093
+--- /dev/null
++++ b/llvm/lib/Transforms/Scalar/MonzaCompartment.cpp
+@@ -0,0 +1,186 @@
++//===- MonzaCompartment.cpp - Fix up IR for Monza compartments --*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file rewrites IR to conform to the Monza compartment ABI.  Monza
++// compartments are single-threaded and use the thread-local storage register
++// for per-compartment state.  All globals are rewritten to thread-local
++// globals.
++//
++// No symbols are exported from compartment other than its entry point and so
++// all symbols are hidden.
++//
++//===----------------------------------------------------------------------===//
++
++#include "llvm/Transforms/Scalar/MonzaCompartment.h"
++#include "llvm/IR/Attributes.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/Module.h"
++#include "llvm/InitializePasses.h"
++#include "llvm/Pass.h"
++#include "llvm/Transforms/Utils/ModuleUtils.h"
++using namespace llvm;
++
++struct GlobalTracker {
++  enum EvalResult {
++    UNEVALUATED = 0,
++    MUSTMOVE,
++    MAYKEEP
++  };
++  DenseMap<Value *, EvalResult> Evaluated;
++
++  bool EvaluateOperand(Value *Op)
++  {
++    bool Result = true;
++    if (Evaluated[Op])
++      return Evaluated[Op] == MAYKEEP;
++
++    if (auto *OpGvP = dyn_cast<GlobalVariable>(Op)) {
++      Result &= (OpGvP->isConstant() && !OpGvP->isThreadLocal() && OpGvP->hasLocalLinkage());
++      if (OpGvP->hasInitializer()) {
++        auto *OpInit = OpGvP->getInitializer();
++        if (OpInit->needsRelocation())
++          Result &= EvaluateInitializer(cast<User>(Op));
++      }
++    } else if (auto *OpConstP = dyn_cast<Constant>(Op)) {
++      if (OpConstP->needsRelocation())
++        Result &= EvaluateInitializer(cast<User>(Op));
++    } else {
++      Result &= EvaluateInitializer(cast<User>(Op));
++    }
++    Evaluated[Op] = Result ? MAYKEEP : MUSTMOVE;
++    return Result;
++  }
++
++  bool EvaluateInitializer(User *Init)
++  {
++    Value *AsValue = cast<Value>(Init);
++    if (Evaluated[AsValue])
++      return Evaluated[AsValue] == MAYKEEP;
++
++    for (auto *Op : Init->operand_values()) {
++      if (!EvaluateOperand(Op)) {
++        Evaluated[AsValue] = MUSTMOVE;
++        return false;
++      }
++    }
++    Evaluated[AsValue] = MAYKEEP;
++    return true;
++  }
++
++};
++
++PreservedAnalyses MonzaCompartmentPass::run(Module &M,
++                                            ModuleAnalysisManager &AM) {
++  LLVMContext &C = M.getContext();
++  FunctionType *InitTy = FunctionType::get(Type::getVoidTy(C), false);
++  auto *InitPtrTy =
++      PointerType::get(InitTy, M.getDataLayout().getProgramAddressSpace());
++  SmallVector<std::pair<GlobalVariable &, Function *>> InitFunctions;
++  GlobalTracker Tracker;
++  for (auto &Gv : M.globals()) {
++    if (Gv.getName().equals("llvm.global_ctors") ||
++        Gv.getName().equals("llvm.used") ||
++        Gv.getName().equals("llvm.compiler.used"))
++      continue;
++    // Leave C++ typeinfo and vtables alone.
++    if (Gv.getName().startswith("_ZTV") ||
++        Gv.getName().startswith("_ZTT") ||
++        Gv.getName().startswith("_ZTI") ||
++        Gv.getName().startswith("_ZTS"))
++      continue;
++    // Leave the dso handle alone.
++    if (Gv.getName().startswith("__dso_handle"))
++      continue;
++    // Leave STL alone.
++    if (Gv.getName().startswith("_ZNSt3__1"))
++      continue;
++    // Leave the snmalloc non-compartment namespace alone.
++    if (Gv.getName().startswith("_ZN14monza_snmalloc") ||
++        Gv.getName().startswith("_ZZN14monza_snmalloc"))
++      continue;
++    // Leave the exection handling section markers alone.
++    if (Gv.getName().equals("__eh_frame_start") ||
++        Gv.getName().equals("__eh_frame_end") ||
++        Gv.getName().equals("__eh_frame_hdr_start") ||
++        Gv.getName().equals("__eh_frame_hdr_end"))
++        continue;
++    if (Gv.hasAttribute(Attribute::AttrKind::MonzaGlobal))
++      continue;
++    if (Gv.isConstant() && !Gv.isThreadLocal()) {
++      if (Gv.hasInitializer() && Gv.hasLocalLinkage()) {
++        auto *Init = Gv.getInitializer();
++        if (!Init->needsRelocation()) {
++          continue;
++        } else {
++          if (Tracker.EvaluateInitializer(cast<User>(Init)))
++            continue;
++        }
++      }
++    }
++      
++    if (!Gv.hasLocalLinkage())
++      Gv.setVisibility(GlobalValue::HiddenVisibility);
++    // While constants could be kept in global memory, their initializer might
++    // involve addresses of other globals, which needs the custom initializer.
++    // So constant globals still need to be converted to thread local.
++    if (Gv.isConstant())
++      Gv.setConstant(false);
++    Gv.setThreadLocalMode(GlobalValue::InitialExecTLSModel);
++    if (Gv.hasInitializer()) {
++      auto *Init = Gv.getInitializer();
++      if (Init->needsRelocation()) {
++        std::string InitFnName{".monza_tls_init_fn_"};
++        InitFnName += Gv.getName();
++        auto InitFn = Function::Create(InitTy,
++                                       Gv.hasLocalLinkage()
++                                           ? GlobalValue::PrivateLinkage
++                                           : GlobalValue::LinkOnceODRLinkage,
++                                       InitFnName, M);
++        auto EntryBB = BasicBlock::Create(C, "entry", InitFn);
++        IRBuilder<> Builder(EntryBB);
++        Builder.CreateStore(Init, &Gv);
++        Builder.CreateRetVoid();
++        if (!Gv.hasLocalLinkage())
++          InitFn->setComdat(Gv.hasComdat() ? Gv.getComdat()
++                                           : M.getOrInsertComdat(InitFnName));
++        InitFunctions.push_back({Gv, InitFn});
++        Gv.setInitializer(Constant::getNullValue(Init->getType()));
++      }
++    }
++  }
++
++  SmallVector<GlobalValue *, 4> InitVars;
++  // Construct global variables for each init function in the monza_init
++  // section.
++  for (auto &I : InitFunctions) {
++    auto &Gv = I.first;
++    auto *Fn = I.second;
++    std::string InitVarName{".monza_tls_init_var_"};
++    InitVarName += Gv.getName();
++    auto *InitGv = new GlobalVariable(M, InitPtrTy, /* isConstant */ true,
++                                      Fn->getLinkage(), Fn, InitVarName);
++    InitVars.push_back(InitGv);
++    InitGv->setSection("__monza_init");
++    if (!Fn->hasLocalLinkage()) {
++      InitGv->setComdat(Gv.hasComdat() ? Gv.getComdat()
++                                       : M.getOrInsertComdat(InitVarName));
++    }
++    auto *Associated = ValueAsMetadata::get(&Gv);
++    InitGv->addMetadata("associated", *MDNode::get(C, {Associated}));
++    Fn->addMetadata("associated", *MDNode::get(C, {Associated}));
++  }
++  if (!InitVars.empty())
++    appendToCompilerUsed(M, InitVars);
++
++  for (auto &F : M.functions()) {
++    if (F.hasLocalLinkage() || F.isIntrinsic())
++      continue;
++    F.setVisibility(GlobalValue::HiddenVisibility);
++  }
++  return PreservedAnalyses::none();
++}
+diff --git a/llvm/lib/Transforms/Utils/CodeExtractor.cpp b/llvm/lib/Transforms/Utils/CodeExtractor.cpp
+index 9edc52b53550..1177264d9901 100644
+--- a/llvm/lib/Transforms/Utils/CodeExtractor.cpp
++++ b/llvm/lib/Transforms/Utils/CodeExtractor.cpp
+@@ -947,6 +947,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
+       case Attribute::NoRecurse:
+       case Attribute::InlineHint:
+       case Attribute::MinSize:
++      case Attribute::MonzaGlobal:
+       case Attribute::NoCallback:
+       case Attribute::NoDuplicate:
+       case Attribute::NoFree:
+diff --git a/llvm/test/Transforms/Monza/basic.ll b/llvm/test/Transforms/Monza/basic.ll
+new file mode 100644
+index 000000000000..1540f7385868
+--- /dev/null
++++ b/llvm/test/Transforms/Monza/basic.ll
+@@ -0,0 +1,41 @@
++; RUN: opt -passes=monza-compartment -S < %s | FileCheck %s
++; ModuleID = 'basic.c'
++source_filename = "glob.c"
++target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
++target triple = "x86_64-unknown-monza"
++
++; Global should be made thread-local and hidden
++@foo = dso_local global i32 12, align 4
++; CHECK: @foo = hidden thread_local(initialexec) global i32 12, align 4
++
++; Private constant should not lose const
++@bar = private constant i32 42, align 4
++; CHECK: @bar = private constant i32 42, align 4
++
++; Private constant should not lose const
++@baz = dso_local constant i32 42, align 4
++; CHECK: @baz = hidden thread_local(initialexec) global i32 42, align 4
++
++@tlsv = internal thread_local global i32 0, align 4
++; CHECK: @tlsv = internal thread_local(initialexec) global i32 0, align 4
++@staticv = internal global i32 0, align 4
++; CHECK: @staticv = internal thread_local(initialexec) global i32 0, align 4
++
++; Functions should be made hidden
++; Function Attrs: noinline nounwind optnone
++define dso_local i32 @fg() #0 {
++; CHECK: define hidden i32 @fg() #0 {
++entry:
++  %0 = load i32, i32* @foo, align 4
++  %add = add nsw i32 %0, 42
++  ret i32 %add
++}
++
++attributes #0 = { noinline nounwind optnone "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
++
++!llvm.module.flags = !{!0, !1}
++!llvm.ident = !{!2}
++
++!0 = !{i32 1, !"wchar_size", i32 4}
++!1 = !{i32 7, !"frame-pointer", i32 2}
++!2 = !{!"clang version 13.0.0 (ssh:;git@github.com/llvm/llvm-project 0ac329e5676ac30320fc5a4b6a68f2a4ed341a37)"}
+diff --git a/llvm/test/Transforms/Monza/global_with_initializer.ll b/llvm/test/Transforms/Monza/global_with_initializer.ll
+new file mode 100644
+index 000000000000..0b91b8789541
+--- /dev/null
++++ b/llvm/test/Transforms/Monza/global_with_initializer.ll
+@@ -0,0 +1,82 @@
++; RUN: opt -passes=monza-compartment -S %s | FileCheck %s
++; ModuleID = 'basic.c'
++source_filename = "glob.c"
++target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
++target triple = "x86_64-unknown-monza"
++
++; Simple global with zero init
++@x = dso_local global i32 0, align 4
++; Global pointing to another global
++@z = dso_local global i32* @x, align 8
++; Integer-typed global that requires a relocation
++@ptr = dso_local global i64 ptrtoint (i8* getelementptr (i8, i8* bitcast (i32* @x to i8*), i64 12) to i64), align 8
++; Global with a non-zero intializer
++@foo = dso_local global i64 54, align 8
++; Static pointing to a global
++@_ZL1y = internal global i32* @x, align 8
++
++; Local linkage constant with trivial initializer
++@cona = internal constant i64 16, align 8
++; Constant with relocatable initializer
++@cona_ptr = private constant i64* @cona, align 8
++; Constant with trivial initializer
++@conb = dso_local constant i64 16, align 8
++; Constant with reloc initializer
++@conb_ptr = private constant i64 ptrtoint (i8* getelementptr (i8, i8* bitcast (i64* @conb to i8*), i64 12) to i64), align 8
++
++; Check that all globals are rewritten correctly
++; CHECK: @x = hidden thread_local(initialexec) global i32 0, align 4
++; CHECK: @z = hidden thread_local(initialexec) global i32* null, align 8
++; CHECK: @ptr = hidden thread_local(initialexec) global i64 0, align 8
++; CHECK: @foo = hidden thread_local(initialexec) global i64 54, align 8
++; CHECK: @_ZL1y = internal thread_local(initialexec) global i32* null, align 8
++; CHECK: @cona = internal constant i64 16, align 8
++; CHECK: @cona_ptr = private constant i64* @cona, align 8
++; CHECK: @conb = hidden thread_local(initialexec) global i64 16, align 8
++; CHECK: @conb_ptr = private thread_local(initialexec) global i64 0, align 8
++
++; Check that we have init variables for all of the globals and that they have the correct linkage types and comdats so that duplicates are merged for symbols that might be declared in two compilation units.
++; CHECK: @.monza_tls_init_var_z = linkonce_odr constant void ()* @.monza_tls_init_fn_z, section "__monza_init", comdat, !associated !0
++; CHECK: @.monza_tls_init_var_ptr = linkonce_odr constant void ()* @.monza_tls_init_fn_ptr, section "__monza_init", comdat, !associated !1
++; CHECK: @.monza_tls_init_var__ZL1y = private constant void ()* @.monza_tls_init_fn__ZL1y, section "__monza_init", !associated !2
++; CHECK: @.monza_tls_init_var_conb_ptr = private constant void ()* @.monza_tls_init_fn_conb_ptr, section "__monza_init", !associated !3
++
++
++; Make sure that the `llvm.used` variable contains all of the init variables so
++; that they won't be optimised away.
++; CHECK: @llvm.compiler.used =
++; CHECK: @.monza_tls_init_var_z 
++; CHECK: @.monza_tls_init_var_ptr 
++; CHECK: @.monza_tls_init_var__ZL1y 
++; CHECK: @.monza_tls_init_var_conb_ptr
++; CHECK: section "llvm.metadata"
++
++; CHECK: define linkonce_odr hidden void @.monza_tls_init_fn_z() comdat !associated !0 {
++; CHECK: entry:
++; CHECK:  store i32* @x, i32** @z, align 8
++; CHECK:  ret void
++; CHECK:}
++
++; CHECK:define linkonce_odr hidden void @.monza_tls_init_fn_ptr() comdat !associated !1 {
++; CHECK:entry:
++; CHECK:  store i64 ptrtoint (i8* getelementptr (i8, i8* bitcast (i32* @x to i8*), i64 12) to i64), i64* @ptr, align 8
++; CHECK:  ret void
++; CHECK:}
++
++; CHECK:define private void @.monza_tls_init_fn__ZL1y() !associated !2 {
++; CHECK:entry:
++; CHECK:  store i32* @x, i32** @_ZL1y, align 8
++; CHECK:  ret void
++; CHECK:}
++
++; CHECK:define private void @.monza_tls_init_fn_conb_ptr() !associated !3 {
++; CHECK:entry:
++; CHECK:  store i64 ptrtoint (i8* getelementptr (i8, i8* bitcast (i64* @conb to i8*), i64 12) to i64), i64* @conb_ptr, align 8
++; CHECK:  ret void
++; CHECK:}
++
++; Check that we have the correct associated state
++; CHECK: !0 = !{i32** @z}
++; CHECK: !1 = !{i64* @ptr}
++; CHECK: !2 = !{i32** @_ZL1y}
++; CHECK: !3 = !{i64* @conb_ptr}
+diff --git a/llvm/test/Transforms/Monza/monza_global.ll b/llvm/test/Transforms/Monza/monza_global.ll
+new file mode 100644
+index 000000000000..4e340fd7c393
+--- /dev/null
++++ b/llvm/test/Transforms/Monza/monza_global.ll
+@@ -0,0 +1,14 @@
++; RUN: opt -passes=monza-compartment -S < %s | FileCheck %s
++; ModuleID = 'basic.c'
++source_filename = "glob.c"
++target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
++target triple = "x86_64-unknown-monza"
++
++; Simple global with zero init that should remain in global storage
++@x = global i32 0, align 4 monzaglobal
++; Simple global with zero init that should be moved to thread-local storage
++@z = global i32 0, align 4
++
++; Check that all globals are rewritten correctly
++; CHECK: @x = global i32 0, align 4
++; CHECK: @z = hidden thread_local(initialexec) global i32 0, align 4

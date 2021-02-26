@@ -1,0 +1,141 @@
+diff --git a/Configure b/Configure
+index 8b234f640f..2c2fdcf547 100755
+--- a/Configure
++++ b/Configure
+@@ -429,6 +429,7 @@ my @disablables = (
+     "devcryptoeng",
+     "dgram",
+     "dh",
++    "directories",
+     "dsa",
+     "dso",
+     "dtls",
+@@ -442,6 +443,7 @@ my @disablables = (
+     "engine",
+     "err",
+     "external-tests",
++    "file-store",
+     "filenames",
+     "fips",
+     "fips-securitychecks",
+@@ -468,6 +470,7 @@ my @disablables = (
+     "poly1305",
+     "posix-io",
+     "psk",
++    "randfile",
+     "rc2",
+     "rc4",
+     "rc5",
+diff --git a/crypto/o_dir.c b/crypto/o_dir.c
+index 6857a2e17d..d1dea91b6b 100644
+--- a/crypto/o_dir.c
++++ b/crypto/o_dir.c
+@@ -23,6 +23,7 @@
+ #include "internal/o_dir.h"
+ 
+ #define LPDIR_H
++#ifndef OPENSSL_NO_DIRECTORIES
+ #if defined OPENSSL_SYS_UNIX || defined DJGPP \
+     || (defined __VMS_VER && __VMS_VER >= 70000000)
+ # include "LPdir_unix.c"
+@@ -35,3 +36,6 @@
+ #else
+ # include "LPdir_nyi.c"
+ #endif
++#else
++# include "LPdir_nyi.c"
++#endif
+diff --git a/crypto/rand/build.info b/crypto/rand/build.info
+index a74282516f..9380aefe1f 100644
+--- a/crypto/rand/build.info
++++ b/crypto/rand/build.info
+@@ -1,8 +1,11 @@
+ LIBS=../../libcrypto
+ 
+ $COMMON=rand_lib.c
+-$CRYPTO=randfile.c rand_err.c rand_deprecated.c prov_seed.c rand_pool.c
++$CRYPTO=rand_err.c rand_deprecated.c prov_seed.c rand_pool.c
+ 
++IF[{- !$disabled{'randfile'} -}]
++  $CRYPTO=$CRYPTO randfile.c
++ENDIF
+ IF[{- !$disabled{'egd'} -}]
+   $CRYPTO=$CRYPTO rand_egd.c
+ ENDIF
+diff --git a/include/openssl/rand.h b/include/openssl/rand.h
+index ad3054fd57..cb5f206bf1 100644
+--- a/include/openssl/rand.h
++++ b/include/openssl/rand.h
+@@ -95,10 +95,13 @@ void RAND_keep_random_devices_open(int keep);
+ __NDK_FPABI__   /* __attribute__((pcs("aapcs"))) on ARM */
+ # endif
+ void RAND_add(const void *buf, int num, double randomness);
++int RAND_status(void);
++
++# ifndef OPENSSL_NO_RANDFILE
+ int RAND_load_file(const char *file, long max_bytes);
+ int RAND_write_file(const char *file);
+ const char *RAND_file_name(char *file, size_t num);
+-int RAND_status(void);
++# endif
+ 
+ # ifndef OPENSSL_NO_EGD
+ int RAND_query_egd_bytes(const char *path, unsigned char *buf, int bytes);
+diff --git a/providers/implementations/include/prov/implementations.h b/providers/implementations/include/prov/implementations.h
+index 3f6dd7ee16..0010896f83 100644
+--- a/providers/implementations/include/prov/implementations.h
++++ b/providers/implementations/include/prov/implementations.h
+@@ -514,4 +514,6 @@ extern const OSSL_DISPATCH ossl_EncryptedPrivateKeyInfo_der_to_der_decoder_funct
+ extern const OSSL_DISPATCH ossl_SubjectPublicKeyInfo_der_to_der_decoder_functions[];
+ extern const OSSL_DISPATCH ossl_pem_to_der_decoder_functions[];
+ 
++#ifndef OPENSSL_NO_FILE_STORE
+ extern const OSSL_DISPATCH ossl_file_store_functions[];
++#endif
+diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/implementations/rands/seeding/rand_unix.c
+index 750afca58e..c4650ba4ec 100644
+--- a/providers/implementations/rands/seeding/rand_unix.c
++++ b/providers/implementations/rands/seeding/rand_unix.c
+@@ -358,14 +358,12 @@ static ssize_t syscall_random(void *buf, size_t buflen)
+      */
+ #  if !defined(__DragonFly__) && !defined(__NetBSD__)
+ #    if defined(__GNUC__) && __GNUC__>=2 && defined(__ELF__) && !defined(__hpux)
+-    extern int getentropy(void *buffer, size_t length) __attribute__((weak));
++    extern int getentropy(void *buffer, size_t length);
+ 
+-    if (getentropy != NULL) {
+-        if (getentropy(buf, buflen) == 0)
+-            return (ssize_t)buflen;
+-        if (errno != ENOSYS)
+-            return -1;
+-    }
++    if (getentropy(buf, buflen) == 0)
++        return (ssize_t)buflen;
++    if (errno != ENOSYS)
++        return -1;
+ #    elif defined(OPENSSL_APPLE_CRYPTO_RANDOM)
+ 
+     if (CCRandomGenerateBytes(buf, buflen) == kCCSuccess)
+diff --git a/providers/implementations/storemgmt/build.info b/providers/implementations/storemgmt/build.info
+index 8e6445a4e7..6e4f83273e 100644
+--- a/providers/implementations/storemgmt/build.info
++++ b/providers/implementations/storemgmt/build.info
+@@ -3,4 +3,6 @@
+ 
+ $STORE_GOAL=../../libdefault.a
+ 
+-SOURCE[$STORE_GOAL]=file_store.c file_store_any2obj.c
++IF[{- !$disabled{'file-store'} -}]
++  SOURCE[$STORE_GOAL]=file_store.c file_store_any2obj.c
++ENDIF
+diff --git a/providers/stores.inc b/providers/stores.inc
+index 4c1ec8f287..4497f1b20d 100644
+--- a/providers/stores.inc
++++ b/providers/stores.inc
+@@ -11,4 +11,6 @@
+ # error Macro STORE undefined
+ #endif
+ 
++#ifndef OPENSSL_NO_FILE_STORE
+ STORE("file", "yes", ossl_file_store_functions)
++#endif

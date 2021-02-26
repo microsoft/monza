@@ -1,0 +1,164 @@
+trigger: none
+
+schedules:
+- cron: "0 0 * * *"
+  displayName: Daily midnight build
+  branches:
+    include:
+    - main
+
+parameters:
+  - name: AnyBuildExtraArgs
+    type: string
+    default: --Epoch 0
+
+variables:
+  AbClusterId: f0fe3ef4-8c59-4cc7-8137-ba661770b825
+  AnyBuildEnvironmentUri: https://northeurope.anybuild.microsoft.com/api/clusters/$(AbClusterId)/agents
+  AnyBuildSource: https://anybuild.azureedge.net/clientreleases
+
+  # https://ms.portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Overview/appId/04f94841-9db4-4712-8939-110fe00464f8/isMSAApp/
+  MonzaPrincipalAppId: 04f94841-9db4-4712-8939-110fe00464f8
+
+  # a secret for the App above; saved as a secret pipeline variable in ADO
+  # MonzaPrincipalPassword: ***
+
+jobs:
+- job: 
+  displayName: Linux
+
+  pool:
+    vmImage: ubuntu-20.04
+
+  timeoutInMinutes: 90
+
+  strategy:
+    matrix:
+      Release:
+        BuildType: Release
+        Systematic: Off
+      Debug:
+        BuildType: Debug
+        Systematic: Off
+      Release-Systematic:
+        BuildType: Release
+        Systematic: On
+      Debug-Systematic:
+        BuildType: Debug
+        Systematic: On
+
+  steps:
+  - checkout: self
+    submodules: true
+
+  - script: |
+      set -eo pipefail
+      sudo apt-get update
+      sudo apt-get install -y ninja-build nasm
+      sudo apt-get install -y clang-format-9
+      sudo apt-get install qemu-system
+      sudo apt-get remove --purge cmake
+      sudo snap install cmake --classic
+    displayName: Dependencies
+
+  - script: ./apply-guest-patches.sh
+    displayName: Patch externals
+    workingDirectory: external
+
+  - task: CMake@1
+    displayName: CMake
+    inputs:
+      cmakeArgs: |
+        .. -GNinja -DCMAKE_BUILD_TYPE=$(BuildType) -DMONZA_SYSTEMATIC_BUILD=$(Systematic)
+
+  - script: |
+      set -euo pipefail
+      curl -s -S --retry 5 --retry-connrefused $(AnyBuildSource)/bootstrapper.sh | bash
+    displayName: Install AnyBuild Client
+
+  - script: |
+      set -eo pipefail
+
+      readonly abClientExe="$HOME/.local/share/Microsoft/AnyBuild/AnyBuild.sh"
+
+      # - limit env vars to SECRET, HOME, and PATH to reduce cache instability
+      # - do not track 'perl' processes; some perl scripts end up invoking 'clang'
+      #   whose remote execution (in this context) does not justify its overhead
+      env                                                \
+        SECRET=$(MonzaPrincipalPassword)                 \
+      "$abClientExe"                                     \
+        --RemoteExecServiceUri $(AnyBuildEnvironmentUri) \
+        --NoCheckForUpdates                              \
+        --DoNotUseMachineUtilizationForScheduling        \
+        --WaitForAgentForever                            \
+        --ClientApplicationId $(MonzaPrincipalAppId)     \
+        --ClientSecretEnvironmentVariable SECRET         \
+        --LogDir AnyBuildLogs --NoSessionLogDir          \
+        --WhyCacheMissOptions "CacheDataStoreKey=monza"  \
+        ${{ parameters.AnyBuildExtraArgs }}              \
+        --                                               \
+        env -i HOME="$HOME" PATH="$PATH" CMAKE_BUILD_PARALLEL_LEVEL=48 cmake --build .
+    workingDirectory: build
+    displayName: Compile all with AnyBuild
+
+  - bash: |
+      set -euo pipefail
+
+      readonly logFile="build/AnyBuildLogs/AnyBuild.log"
+      if [[ -f "$logFile" ]]; then
+        sed -n '/Session telemetry: Finished/,$ p' "$logFile"
+      fi
+    continueOnError: true
+    condition: always()
+    displayName: Print AnyBuild Stats
+
+  - publish: build/AnyBuildLogs
+    artifact: AnyBuildLogs-$(BuildType)
+    continueOnError: true
+    condition: and(failed(), not(canceled()))
+    displayName: Publish AnyBuild Logs
+
+  - script: |
+      set -eo pipefail
+      CTEST_OUTPUT_ON_FAILURE=ON ninja guest-verona-rt-test
+    workingDirectory: build
+    displayName: Tests
+
+  - task: ComponentGovernanceComponentDetection@0
+    inputs:
+      ignoreDirectories: 'external/llvm-project/mlir,external/llvm-project/lldb,external/llvm-project/utils,external/llvm-project/clang/utils,external/llvm-project/libcxx/utils,external/llvm-project/llvm/utils'
+      scanType: 'Register'
+      verbosity: 'Verbose'
+      alertWarningLevel: 'High'
+
+############################################## Clang Format Check
+- job:
+  displayName: Format
+  pool:
+    vmImage: 'ubuntu-20.04'
+  steps:
+  - checkout: self
+
+  - script: |
+      set -eo pipefail
+      sudo apt-get update
+      sudo apt-get install -y ninja-build nasm
+      sudo apt-get install -y clang-format-9
+    displayName: 'Install Clang tools'
+  - task: CMake@1
+    displayName: 'CMake'
+    inputs:
+      cmakeArgs: |
+        ..
+  - script: |
+      set -eo pipefail
+      make clangformat
+      git diff --ignore-submodules=dirty --exit-code $(Build.SourceVersion)
+    workingDirectory: build
+    displayName: 'Clang-Format'
+
+  - script: |
+      set -eo pipefail
+      make copyright
+    workingDirectory: build
+    displayName: 'Check Copyright and License'

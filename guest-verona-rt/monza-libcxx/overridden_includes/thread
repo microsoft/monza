@@ -1,0 +1,59 @@
+// Copyright Microsoft and Project Monza Contributors.
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include <__config>
+#include <__external_threading>
+#include <chrono>
+#include <ostream>
+
+/**
+ * While Monza has threads, its threading model is very different from the C++ std::thread.
+ * As such, we deemed it dangerous to be emulating std::thread poorly.
+ * But we still want libc++ to be compiling with multi-threaded support, so we need a copy of this header.
+ * 
+ * This file completes the implementation of std::this_thread which is started in __threading_support.
+ */
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+/**
+ * Needed by CCF to track the current thread id.
+ */
+class thread
+{
+public:
+  typedef __thread_id id;
+};
+
+namespace this_thread
+{
+  /**
+   * Needed by other parts of libc++.
+   */
+  inline void yield() noexcept
+  {
+    __libcpp_thread_yield();
+  }
+
+  /**
+   * Needed by CCF to handle idling.
+   */
+  template<class Rep, class Period>
+  inline void sleep_for(const std::chrono::duration<Rep, Period>&) noexcept
+  {
+    __libcpp_thread_yield();
+  }
+}
+
+/**
+ * Needed by CCF to track the current thread id.
+ */
+template<class CharT, class Traits>
+basic_ostream<CharT, Traits>& operator<<(basic_ostream<CharT, Traits>& os, thread::id id)
+{
+  return os << id.__id_;
+}
+
+_LIBCPP_END_NAMESPACE_STD

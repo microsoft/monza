@@ -1,0 +1,6 @@
+{
+  "ActionCache": {
+    "MaxParallelLookups": 40,
+    "IgnoredEnvVars": [ "CMAKE_*", "MAKEFLAGS", "MFLAGS", "SNAP" ]
+  }
+}

@@ -1,0 +1,2 @@
+# Disable any line-ending normalization (some Windows machines might be set up for it)
+* -text

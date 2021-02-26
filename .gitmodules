@@ -1,0 +1,35 @@
+[submodule "external/libcxxrt"]
+	path = external/libcxxrt
+	url = https://github.com/libcxxrt/libcxxrt.git
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/pure64"]
+	path = external/pure64
+	url = https://github.com/ReturnInfinity/Pure64
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/musl"]
+	path = external/musl
+	url = git://git.musl-libc.org/musl
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/verona"]
+	path = external/verona
+	url = https://github.com/microsoft/verona.git
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/snmalloc"]
+	path = external/snmalloc
+	url = https://github.com/microsoft/snmalloc.git
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/llvm-project"]
+	path = external/llvm-project
+	url = https://github.com/llvm/llvm-project
+	shallow = true
+	fetchRecurseSubmodules = false
+[submodule "external/openssl"]
+	path = external/openssl
+	url = https://github.com/openssl/openssl.git
+	shallow = true
+	fetchRecurseSubmodules = false

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json.schemastore.org/component-detection-manifest.json",
+  "Registrations": [
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/libcxxrt/libcxxrt.git",
+          "commitHash": "f8960b7becbea169333be52ebd3aaf2004982c05"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/ReturnInfinity/Pure64",
+          "commitHash": "1ffe93a614bb7ce8a9fd2ddbfc580067ea246dca"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "git://git.musl-libc.org/musl",
+          "commitHash": "7a43f6fea9081bdd53d8a11cef9e9fab0348c53d"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/microsoft/verona.git",
+          "commitHash": "49ee515333b519955baa80a0f50fda2b9678e163"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/microsoft/snmalloc.git",
+          "commitHash": "9464556129ad38ed6cb19c472981576a93f529d4"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/llvm/llvm-project",
+          "commitHash": "75e33f71c2dae584b13a7d1186ae0a038ba98838"
+        }
+      }
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/openssl/openssl.git",
+          "commitHash": "ad4910fad22d57c6d685b0ca83bdb7b2bf69d8fd"
+        }
+      }
+    }
+  ],
+  "Version": 1
+}

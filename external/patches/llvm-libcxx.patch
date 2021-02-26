@@ -1,0 +1,115 @@
+diff --git a/libcxx/CMakeLists.txt b/libcxx/CMakeLists.txt
+index b1e25358d41..52a574d6645 100644
+--- a/libcxx/CMakeLists.txt
++++ b/libcxx/CMakeLists.txt
+@@ -97,6 +97,8 @@ if (WIN32 AND NOT MINGW)
+ endif()
+ option(LIBCXX_ENABLE_FILESYSTEM "Build filesystem as part of the main libc++ library"
+     ${ENABLE_FILESYSTEM_DEFAULT})
++option(LIBCXX_ENABLE_FILES "Build fstream support as part of the main libc++ library"
++    ON)
+ option(LIBCXX_INCLUDE_TESTS "Build the libc++ tests." ${LLVM_INCLUDE_TESTS})
+ option(LIBCXX_ENABLE_PARALLEL_ALGORITHMS "Enable the parallel algorithms library. This requires the PSTL to be available." OFF)
+ option(LIBCXX_ENABLE_DEBUG_MODE_SUPPORT
+@@ -885,6 +887,7 @@ config_define_if(LIBCXX_HAS_MUSL_LIBC _LIBCPP_HAS_MUSL_LIBC)
+ config_define_if(LIBCXX_NO_VCRUNTIME _LIBCPP_NO_VCRUNTIME)
+ config_define_if(LIBCXX_ENABLE_PARALLEL_ALGORITHMS _LIBCPP_HAS_PARALLEL_ALGORITHMS)
+ config_define_if_not(LIBCXX_ENABLE_FILESYSTEM _LIBCPP_HAS_NO_FILESYSTEM_LIBRARY)
++config_define_if_not(LIBCXX_ENABLE_FILES _LIBCPP_HAS_NO_FILES)
+ config_define_if_not(LIBCXX_ENABLE_RANDOM_DEVICE _LIBCPP_HAS_NO_RANDOM_DEVICE)
+ config_define_if_not(LIBCXX_ENABLE_LOCALIZATION _LIBCPP_HAS_NO_LOCALIZATION)
+ config_define_if_not(LIBCXX_ENABLE_VENDOR_AVAILABILITY_ANNOTATIONS _LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS)
+diff --git a/libcxx/include/__config_site.in b/libcxx/include/__config_site.in
+index e202d923f31..3a78b5e719e 100644
+--- a/libcxx/include/__config_site.in
++++ b/libcxx/include/__config_site.in
+@@ -31,6 +31,7 @@
+ #cmakedefine _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION @_LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION@
+ #cmakedefine _LIBCPP_ABI_NAMESPACE @_LIBCPP_ABI_NAMESPACE@
+ #cmakedefine _LIBCPP_HAS_NO_FILESYSTEM_LIBRARY
++#cmakedefine _LIBCPP_HAS_NO_FILES
+ #cmakedefine _LIBCPP_HAS_PARALLEL_ALGORITHMS
+ #cmakedefine _LIBCPP_HAS_NO_RANDOM_DEVICE
+ #cmakedefine _LIBCPP_HAS_NO_LOCALIZATION
+diff --git a/libcxx/include/fstream b/libcxx/include/fstream
+index c522b8ab110..42cb7d88d6b 100644
+--- a/libcxx/include/fstream
++++ b/libcxx/include/fstream
+@@ -192,6 +192,10 @@ typedef basic_fstream<wchar_t> wfstream;
+ #   include <filesystem>
+ #endif
+ 
++#if defined(_LIBCPP_HAS_NO_FILES)
++#   error "fstream is supported by this configuration of libc++"
++#endif
++
+ #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+ #pragma GCC system_header
+ #endif
+diff --git a/libcxx/src/ios.instantiations.cpp b/libcxx/src/ios.instantiations.cpp
+index 1a23687d128..bd9f5d72b68 100644
+--- a/libcxx/src/ios.instantiations.cpp
++++ b/libcxx/src/ios.instantiations.cpp
+@@ -7,7 +7,9 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "__config"
+-#include "fstream"
++#if !defined(_LIBCPP_HAS_NO_FILES)
++#    include "fstream"
++#endif
+ #include "ios"
+ #include "istream"
+ #include "ostream"
+@@ -34,9 +36,12 @@ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_stringbuf<char>;
+ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_stringstream<char>;
+ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ostringstream<char>;
+ template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_istringstream<char>;
+-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ifstream<char>;
+-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ofstream<char>;
+-template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_filebuf<char>;
++
++#if !defined(_LIBCPP_HAS_NO_FILES)
++    template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ifstream<char>;
++    template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_ofstream<char>;
++    template class _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS basic_filebuf<char>;
++#endif
+ 
+ // Add more here if needed...
+ 
+diff --git a/libcxx/utils/generate_header_tests.py b/libcxx/utils/generate_header_tests.py
+index e08191400c5..19699667ac1 100755
+--- a/libcxx/utils/generate_header_tests.py
++++ b/libcxx/utils/generate_header_tests.py
+@@ -32,6 +32,7 @@ header_markup = {
+ 
+     "experimental/filesystem": ["ifndef _LIBCPP_HAS_NO_FILESYSTEM_LIBRARY"],
+     "filesystem": ["ifndef _LIBCPP_HAS_NO_FILESYSTEM_LIBRARY"],
++    "fstream": ["ifndef _LIBCPP_HAS_NO_FILES"],
+     "format": ["ifndef _LIBCPP_HAS_NO_INCOMPLETE_FORMAT"],
+ 
+     "clocale": ["ifndef _LIBCPP_HAS_NO_LOCALIZATION"],
+diff --git a/libcxx/utils/libcxx/test/features.py b/libcxx/utils/libcxx/test/features.py
+index 09afe2053c1..aa7c5ab24f5 100644
+--- a/libcxx/utils/libcxx/test/features.py
++++ b/libcxx/utils/libcxx/test/features.py
+@@ -102,6 +102,7 @@ macros = {
+   '_LIBCPP_ABI_VERSION': 'libcpp-abi-version',
+   '_LIBCPP_ABI_UNSTABLE': 'libcpp-abi-unstable',
+   '_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY': 'libcpp-has-no-filesystem-library',
++  '_LIBCPP_HAS_NO_FILES': 'libcpp-has-no-files',
+   '_LIBCPP_HAS_NO_RANDOM_DEVICE': 'libcpp-has-no-random-device',
+   '_LIBCPP_HAS_NO_LOCALIZATION': 'libcpp-has-no-localization',
+   '_LIBCPP_HAS_NO_INCOMPLETE_FORMAT': 'libcpp-has-no-incomplete-format',
+diff --git a/llvm/utils/gn/secondary/libcxx/include/BUILD.gn b/llvm/utils/gn/secondary/libcxx/include/BUILD.gn
+index 32f81da3e87..443ca9d3eca 100644
+--- a/llvm/utils/gn/secondary/libcxx/include/BUILD.gn
++++ b/llvm/utils/gn/secondary/libcxx/include/BUILD.gn
+@@ -20,6 +20,7 @@ if (current_toolchain == default_toolchain) {
+       "_LIBCPP_ABI_FORCE_MICROSOFT=",
+       "_LIBCPP_HIDE_FROM_ABI_PER_TU_BY_DEFAULT=",
+       "_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY=",
++      "_LIBCPP_HAS_NO_FILES=",
+       "_LIBCPP_HAS_NO_INCOMPLETE_FORMAT=",
+       "_LIBCPP_HAS_NO_INCOMPLETE_RANGES=",
+       "_LIBCPP_HAS_NO_GLOBAL_FILESYSTEM_NAMESPACE=",

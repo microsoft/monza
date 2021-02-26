@@ -1,0 +1,61 @@
+trigger: none
+
+jobs:
+############################################## Linux Builds
+- job:
+  displayName: LLVM Linux Build
+  pool:
+    vmImage: ubuntu-20.04
+  timeoutInMinutes: 240
+  strategy:
+    matrix:
+      Clang Release:
+        CC: clang
+        CXX: clang++
+        CXXFLAGS: -stdlib=libstdc++
+        BuildType: Release
+        BuildName: release
+        Sanitizer:
+  variables:
+  - name: PKG_NAME
+    value: monza-llvm-install-x86_64-linux-$(BuildName)
+  steps:
+  - checkout: self
+    submodules: true
+
+  - script: |
+      set -eo pipefail
+      sudo apt-get update
+      sudo apt-get install -y clang ninja-build lld
+      sudo snap install cmake --classic
+      curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+    displayName: 'Install Build Dependencies'
+  - script: |
+      git apply ../patches/llvm-clang.patch
+      git apply ../patches/llvm-libcxx.patch
+    displayName: Patch LLVM
+    workingDirectory: external/llvm-project
+  - task: CMake@1
+    displayName: 'CMake'
+    inputs:
+      cmakeArgs: |
+        ../external/llvm-project/llvm -GNinja -DCMAKE_BUILD_TYPE=$(BuildType) -DCMAKE_C_COMPILER=$(CC) -DCMAKE_CXX_COMPILER=$(CXX) -DCMAKE_CXX_FLAGS=$(CXXFLAGS) -DLLVM_USE_SANITIZER=$(Sanitizer) -DLLVM_ENABLE_PROJECTS="clang;clang-tools;lld;libcxxabi;libcxx;compiler-rt" -DLLVM_TARGETS_TO_BUILD="X86;WebAssembly" -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_LLD=ON -DLLVM_ENABLE_EH=ON -DLLVM_ENABLE_RTTI=ON -DCMAKE_INSTALL_PREFIX=install -DMLIR_INCLUDE_TESTS=OFF
+  - script: |
+      set -eo pipefail
+      ninja install
+    workingDirectory: build
+    displayName: 'Compile LLVM & MLIR'
+  - script: |
+      set -eo pipefail
+      rm -f $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz
+      tar zcf $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz build/install
+      md5sum $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz | awk '{print $1}' > $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz.md5
+    displayName: 'Create package'
+  - task: UniversalPackages@0
+    displayName: Universal Publish
+    inputs:
+      command: publish
+      publishDirectory: '$(Build.ArtifactStagingDirectory)'
+      vstsFeedPublish: 'Monza/LLVMBuild'
+      vstsFeedPackagePublish: 'monza-llvm'
+      packagePublishDescription: 'Full LLVM build for Monza'
