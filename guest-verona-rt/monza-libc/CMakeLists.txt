@@ -233,6 +233,7 @@ set(MUSL_HEADERS
     include/regex.h
     include/sched.h
     include/search.h
+    include/signal.h
     include/stdalign.h
     include/stdarg.h
     include/stdbool.h
@@ -262,6 +263,7 @@ set(MUSL_HEADERS_BITS
     arch/${ARCH}/bits/mman.h
     arch/${ARCH}/bits/posix.h
     arch/${ARCH}/bits/reg.h
+    arch/${ARCH}/bits/signal.h
     arch/${ARCH}/bits/stdint.h
 
     arch/generic/bits/errno.h

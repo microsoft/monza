@@ -22,9 +22,9 @@ namespace monza
   // Pagetable pages are always 4kB.
   constexpr size_t PT_PAGE_SIZE = 4 * 1024;
 
-  // For now limit the top of memory to 1TB due to QEMU limit.
+  // For now limit the top of memory to 500GB due to QEMU limit.
   static constexpr snmalloc::address_t TOP_OF_MEMORY = static_cast<uint64_t>(1)
-    << 40;
+    << 39;
   // 64MB of shared memory specifically for IO purposes at the top range of
   // memory.
   static constexpr size_t IO_SHARED_MEMORY_SIZE = 64 * 1024 * 1024;

@@ -2,7 +2,7 @@
 
 STATUS=0
 
-files=`git ls-files -- '*.cpp' '*.cc' '*.h' '*.hh' '*.asm' 's' '.py' | xargs`
+files=`git ls-files -- ':!:external/*' '*.cpp' '*.cc' '*.h' '*.hh' '*.asm' 's' '.py' | xargs`
 grep -L "Copyright Microsoft and Project Monza Contributors."  $files > header_missing
 if [ -s header_missing ]; then
   echo "Copyright missing on:"

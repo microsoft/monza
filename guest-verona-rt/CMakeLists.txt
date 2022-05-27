@@ -140,6 +140,11 @@ set_target_properties(snmalloc PROPERTIES INTERFACE_LINK_LIBRARIES "")
 # Link option, but in fact snmalloc is an INTERFACE library that configures compiler options
 target_link_libraries(monza_compatibility INTERFACE snmalloc)
 
+# I/O
+add_subdirectory(io EXCLUDE_FROM_ALL)
+target_link_libraries(monza_io INTERFACE monza_kernel_compatibility)
+target_link_libraries(monza_app INTERFACE monza_io)
+
 # Push all low-level system libraries into one group as they depend on each other
 target_link_libraries(monza_app INTERFACE
   -Wl,--start-group
@@ -302,7 +307,7 @@ macro(create_test target_name artefact_list test_name test_folder category)
     else ((${test_name} STREQUAL "io-shmem"))
       set(memory_option_string "-m 1G,slots=2,maxmem=1T \
         -object memory-backend-file,id=shmem,share=on,mem-path=mem.bin,size=64M,align=2M \
-        -device pc-dimm,memdev=shmem,addr=0xfffc000000")
+        -device pc-dimm,memdev=shmem,addr=0x7ffc000000")
     endif()
     add_test(${test_name} sh -c "qemu-system-${ARCH} -cpu IvyBridge -no-reboot -nographic -kernel qemu-${test_name}.img -smp 4 ${memory_option_string} |\
       awk -F: 'BEGIN { not_found = 1; } index($0, \"CRITICAL: Execution finished with 0.\") > 0 { not_found = 0; } { print $0; } END { exit not_found; }'")

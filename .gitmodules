@@ -15,7 +15,8 @@
 	fetchRecurseSubmodules = false
 [submodule "external/verona"]
 	path = external/verona
-	url = https://github.com/microsoft/verona.git
+	url = https://github.com/mjp41/verona.git
+	branch = token_source
 	shallow = true
 	fetchRecurseSubmodules = false
 [submodule "external/snmalloc"]

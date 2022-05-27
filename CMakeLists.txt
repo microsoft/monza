@@ -63,6 +63,9 @@ ExternalProject_Add(external
 list (APPEND MONZA_GUEST_EXTRA_CMAKE_ARGS
   -DMONZA_LLVM_LOCATION=${LLVM_INSTALL}/install
 )
+list (APPEND MONZA_CNET_HOST_EXTRA_CMAKE_ARGS
+  -DMONZA_LLVM_LOCATION=${LLVM_INSTALL}/install
+)
 
 ##########################################################
 #  Build Monza guest subproject
@@ -78,6 +81,63 @@ ExternalProject_Add(guest-verona-rt
   SOURCE_DIR ${CMAKE_SOURCE_DIR}/guest-verona-rt
   DEPENDS external
   CMAKE_ARGS ${MONZA_GUEST_EXTRA_CMAKE_ARGS}
+  BUILD_ALWAYS true
+  TEST_AFTER_INSTALL true
+  TEST_EXCLUDE_FROM_MAIN true
+  STEP_TARGETS test
+  USES_TERMINAL_BUILD true
+  USES_TERMINAL_CONFIGURE true
+  USES_TERMINAL_INSTALL true
+  USES_TERMINAL_TEST true
+)
+##########################################################
+#  Build Monza cnet-host subproject
+##########################################################
+list (APPEND MONZA_CNET_HOST_EXTRA_CMAKE_ARGS
+  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+)
+if (MONZA_HOST_DEBUG)
+  list (APPEND MONZA_CNET_HOST_EXTRA_CMAKE_ARGS
+    -DMONZA_HOST_DEBUG=${MONZA_HOST_DEBUG}
+  )
+endif()
+
+ExternalProject_Add(cnet-host
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/host/cnet-host
+  DEPENDS external
+  CMAKE_ARGS ${MONZA_CNET_HOST_EXTRA_CMAKE_ARGS}
+  BUILD_ALWAYS true
+  TEST_AFTER_INSTALL true
+  TEST_EXCLUDE_FROM_MAIN true
+  STEP_TARGETS test
+  USES_TERMINAL_BUILD true
+  USES_TERMINAL_CONFIGURE true
+  USES_TERMINAL_INSTALL true
+  USES_TERMINAL_TEST true
+)
+##########################################################
+#  Build Monza cnet-benchmark subproject
+##########################################################
+ExternalProject_Add(cnet-benchmark
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/host/cnet-benchmark
+  DEPENDS external
+  CMAKE_ARGS ${MONZA_CNET_HOST_EXTRA_CMAKE_ARGS}
+  BUILD_ALWAYS true
+  TEST_AFTER_INSTALL true
+  TEST_EXCLUDE_FROM_MAIN true
+  STEP_TARGETS test
+  USES_TERMINAL_BUILD true
+  USES_TERMINAL_CONFIGURE true
+  USES_TERMINAL_INSTALL true
+  USES_TERMINAL_TEST true
+)
+##########################################################
+#  Build Monza cnet-benchmark-test subproject
+##########################################################
+ExternalProject_Add(cnet-benchmark-test-server
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/host/cnet-benchmark-test-server
+  DEPENDS external
+  CMAKE_ARGS ${MONZA_CNET_HOST_EXTRA_CMAKE_ARGS}
   BUILD_ALWAYS true
   TEST_AFTER_INSTALL true
   TEST_EXCLUDE_FROM_MAIN true
