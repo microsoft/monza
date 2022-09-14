@@ -135,6 +135,9 @@ namespace monza
     UserGDTEntry null_seg = NullSegment;
     UserGDTEntry kernel_code = CodeSegment64(0);
     UserGDTEntry kernel_data = DataSegment64(0);
+    UserGDTEntry compartment_code32 = CodeSegment32(3);
+    UserGDTEntry compartment_data = DataSegment64(3);
+    UserGDTEntry compartment_code = CodeSegment64(3);
     SystemGDTEntry tss[MAX_CORE_COUNT];
 
     constexpr GDT()
@@ -171,6 +174,10 @@ namespace monza
 
   constexpr uint64_t KERNEL_CS = offsetof(struct GDT, kernel_code);
   constexpr uint64_t KERNEL_DS = offsetof(struct GDT, kernel_data);
+  constexpr uint64_t COMPARTMENT_CS32 =
+    offsetof(struct GDT, compartment_code32) | 0x3;
+  constexpr uint64_t COMPARTMENT_CS =
+    offsetof(struct GDT, compartment_code) | 0x3;
   constexpr uint64_t TSS_SEG(platform_core_id_t core)
   {
     return offsetof(struct GDT, tss) + (sizeof(SystemGDTEntry) * core) + 0x3;

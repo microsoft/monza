@@ -3,7 +3,15 @@
 
 #pragma once
 
-#define snmalloc monza_snmalloc
+#if defined(MONZA_COMPARTMENT_NAMESPACE)
+
+#  define snmalloc monza_compartment_snmalloc
+
+#else
+
+#  define snmalloc monza_snmalloc
+
+#endif
 
 // Core implementation of snmalloc independent of the configuration mode
 // gives enough to define a MonzaPal

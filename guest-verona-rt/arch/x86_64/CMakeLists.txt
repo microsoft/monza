@@ -4,9 +4,10 @@ set(SRC
   ${SRC}
   main64.asm
   cores.asm
+  compartment.asm
   exceptions.asm)
 set_property(SOURCE cores.asm APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/inc/macros.asm)
-set_property(SOURCE APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/inc/macros.asm)
+set_property(SOURCE compartment.asm APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/inc/macros.asm)
 
 add_library(monza_rt_arch STATIC ${SRC})
 target_include_directories(monza_rt_arch PRIVATE inc)

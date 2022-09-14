@@ -37,4 +37,5 @@ namespace monza
     std::span<const uint8_t> user_data);
 
   void setup_gdt();
+  void setup_compartments();
 }

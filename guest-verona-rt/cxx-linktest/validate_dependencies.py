@@ -21,6 +21,7 @@ allowed_function = {
 
   # Monza start/stop
   "_ZN5monza10monza_exitEi",
+  "_ZN5monza16compartment_exitEi",
   "_ZN5monza16monza_finalizersEv",
   "_ZN5monza18monza_initializersEv",
 
@@ -35,6 +36,8 @@ allowed_function = {
   "_ZN5monza17allocate_tls_slotEPt",
   "_ZN5monza14get_alloc_sizeEPKv",
   "_ZN5monza16get_base_pointerEPv",
+  "_ZN5monza20compartment_callbackEmPvS0_",
+  "_ZN5monza25compartment_kwrite_stdoutE",
   "_ZN5monza11wake_threadEj",
   "_ZN5monza12sleep_threadEv",
   "_ZN5monza11init_timingERK8timespec",
@@ -43,6 +46,8 @@ allowed_function = {
   "_ZN5monza6Logger13global_streamE",
   "_ZN5monza6Logger19thread_local_streamE",
   "_ZN5monza15is_confidentialEv",
+  "_ZN5monza32deallocate_compartment_pagetableEPv",
+  "_ZN5monza33remove_from_compartment_pagetableEPvmm",
 }
 
 success = True

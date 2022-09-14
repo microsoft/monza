@@ -89,13 +89,18 @@ namespace monza
   /**
    * Initialize a given TLS.
    * Supports only the local-exec TLS model.
+   * @param compartment Reference to compartment if this TLS belongs to a
+   *compartment, CompartmentOwner::null() marker otherwise.
    * @param tls_alloc_base The allocation address of the entire TLS region.
    * @param stack_limit_low The lower limit of the thread stack.
    * @param tls_alloc_high The upper limit of the thread stack.
    * @return Base address of the new TLS.
    */
   void* initialize_tls(
-    void* tls_alloc_base, void* stack_limit_low, void* stack_limit_high)
+    CompartmentOwner compartment,
+    void* tls_alloc_base,
+    void* stack_limit_low,
+    void* stack_limit_high)
   {
     memcpy(
       (char*)tls_alloc_base,
@@ -115,6 +120,7 @@ namespace monza
     tcb->self_ptr = tls_base;
     tcb->stack_limit_low = stack_limit_low;
     tcb->stack_limit_high = stack_limit_high;
+    tcb->compartment = compartment;
 
     return tls_base;
   }
@@ -149,7 +155,11 @@ namespace monza
       kabort();
     }
 
-    return initialize_tls(tls_alloc_base, stack_limit_low, stack_limit_high);
+    return initialize_tls(
+      CompartmentOwner::null(),
+      tls_alloc_base,
+      stack_limit_low,
+      stack_limit_high);
   }
 
   void free_tls(void* tls)

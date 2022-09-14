@@ -41,6 +41,12 @@ global idtr
     mov dword [edi + ecx + 12], 0       ; Must be 0
 %endmacro
 
+%macro enable_gate_for_compartments 1
+    mov al, [edi + %1 * 16 + 5]         ; Type field
+    or al, 0x60                         ; 0x11 for protection level
+    mov [edi + %1 * 16 + 5], al
+%endmacro
+
 %macro print_and_halt 1
     set_kernel_cr3 INT_CS_OFFSET
     mov rdi, %1
@@ -78,6 +84,7 @@ setup_idt_generic:
     install_exception_gate 01, 01
     install_exception_gate 02, 02
     install_exception_gate 03, breakpoint
+    enable_gate_for_compartments 03
     install_exception_gate 04, 04
     install_exception_gate 05, 05
     install_exception_gate 06, 06

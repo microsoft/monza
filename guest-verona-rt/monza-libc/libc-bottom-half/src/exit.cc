@@ -8,7 +8,14 @@
 #pragma GCC diagnostic ignored "-Winvalid-noreturn"
 extern "C" _Noreturn void _Exit(int status)
 {
-  monza::monza_exit(status);
+  if (monza::is_compartment())
+  {
+    monza::compartment_exit(127);
+  }
+  else
+  {
+    monza::monza_exit(status);
+  }
 }
 #pragma GCC diagnostic pop
 
@@ -17,5 +24,13 @@ extern "C" void __stdio_exit();
 
 extern "C" void __libc_exit_finalizers()
 {
-  monza::monza_finalizers();
+  if (monza::is_compartment())
+  {
+    __funcs_on_exit();
+    __stdio_exit();
+  }
+  else
+  {
+    monza::monza_finalizers();
+  }
 }

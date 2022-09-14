@@ -26,8 +26,14 @@ extern "C" size_t __stdio_actual_write(
   auto stdout_data = {std::span(fbuf, flen), std::span(buf, len)};
 
   size_t written;
-
-  written = monza::kwritev_stdout(stdout_data);
+  if (monza::is_compartment())
+  {
+    written = monza::compartment_kwrite_stdout(stdout_data);
+  }
+  else
+  {
+    written = monza::kwritev_stdout(stdout_data);
+  }
 
   if (written == flen + len)
   {

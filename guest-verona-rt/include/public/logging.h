@@ -321,6 +321,27 @@ namespace monza
     }
   };
 
+#ifdef MONZA_COMPARTMENT_NAMESPACE
+  /**
+   * Static logger managing logging streams.
+   * Compiled for compartment-exclusive code where TLS is alwas availabe, but
+   * there are no globals. Uses static constinit to ensure that no initializers
+   * need to be called.
+   */
+  class CompartmentLogger
+  {
+    static thread_local constinit inline LoggerStream thread_local_stream;
+
+  public:
+    /**
+     * Retreive the currently active stream.
+     */
+    inline static LoggerStream& stream() noexcept
+    {
+      return thread_local_stream;
+    }
+  };
+#else
   /**
    * Static logger managing logging streams.
    * Offers global stream before TLS is available, thread-local one afterwards.
@@ -353,11 +374,18 @@ namespace monza
       }
     }
   };
+#endif
 }
 
-#define LOG(level) \
-  if constexpr (monza::level >= monza::CURRENT_LOG_LEVEL) \
-  monza::Logger::stream() << (#level ": ")
+#ifdef MONZA_COMPARTMENT_NAMESPACE
+#  define LOG(level) \
+    if constexpr (monza::level >= monza::CURRENT_LOG_LEVEL) \
+    monza::CompartmentLogger::stream() << (#level ": ")
+#else
+#  define LOG(level) \
+    if constexpr (monza::level >= monza::CURRENT_LOG_LEVEL) \
+    monza::Logger::stream() << (#level ": ")
+#endif
 
 #define LOG_MOD(level, module) LOG(level) << (#module ": ")
 

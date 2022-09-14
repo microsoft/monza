@@ -65,6 +65,10 @@ namespace monza
         return PTE_PRESENT | (is_kernel ? 0 : PTE_USER);
       case PT_FORCE_KERNEL_WRITE:
         return PTE_PRESENT | PTE_WRITABLE;
+      case PT_COMPARTMENT_WRITE:
+        return PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+      case PT_COMPARTMENT_READ:
+        return PTE_PRESENT | PTE_USER;
       default:
         return 0;
     }

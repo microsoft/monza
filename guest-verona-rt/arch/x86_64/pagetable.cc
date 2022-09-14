@@ -68,6 +68,8 @@ namespace monza
       (pagetable_entry_count() - 1);
   }
 
+  static PagetableEntry* compartment_template_first_pdp_template;
+
   static inline void* alloc_pagetable_node(bool is_kernel)
   {
     if (is_kernel)
@@ -249,6 +251,32 @@ namespace monza
     }
   }
 
+  static void compartment_initializer_from_map(
+    PagetableEntry* pdp_entry, std::span<const MapEntry> map)
+  {
+    for (auto& entry : map)
+    {
+      add_to_pagetable<false, PDP_LEVEL>(
+        compartment_template_first_pdp_template,
+        snmalloc::address_cast(entry.start),
+        snmalloc::pointer_diff(entry.start, entry.end),
+        entry.perm,
+        PERSISTENT_TYPE);
+    }
+  }
+
+  static void create_compartment_template_pdp()
+  {
+    compartment_template_first_pdp_template =
+      static_cast<PagetableEntry*>(alloc_pagetable_node(false));
+
+    compartment_initializer_from_map(
+      compartment_template_first_pdp_template, predefined_map);
+
+    compartment_initializer_from_map(
+      compartment_template_first_pdp_template, interrupt_stack_map);
+  }
+
   void setup_pagetable_generic()
   {
     create_kernel_page_table();
@@ -267,6 +295,62 @@ namespace monza
     }
     add_to_pagetable<true, PML4_LEVEL>(
       static_cast<PagetableEntry*>(kernel_pagetable), base, size, perm);
+  }
+
+  void* create_compartment_pagetable()
+  {
+    if (compartment_template_first_pdp_template == nullptr)
+    {
+      create_compartment_template_pdp();
+    }
+
+    PagetableEntry* root =
+      static_cast<PagetableEntry*>(alloc_pagetable_node(false));
+
+    copy_to_pagetable<false, PML4_LEVEL, PDP_LEVEL>(
+      root, 0, compartment_template_first_pdp_template);
+
+    return root;
+  }
+
+  void deallocate_compartment_pagetable(void* root)
+  {
+    deallocate_pagetable<false, PML4_LEVEL>(static_cast<PagetableEntry*>(root));
+  }
+
+  void add_to_compartment_pagetable(
+    void* root, snmalloc::address_t base, size_t size, PagetablePermission perm)
+  {
+    if (base % PAGE_SIZE != 0 || size % PAGE_SIZE != 0)
+    {
+      LOG_MOD(ERROR, Pagetable)
+        << "Invalid alignment of base (" << base << ") or size (" << size
+        << ") of range when trying to expand pagetable." << LOG_ENDL;
+      kabort();
+    }
+    add_to_pagetable<false, PML4_LEVEL>(
+      static_cast<PagetableEntry*>(root), base, size, perm);
+  }
+
+  void remove_from_compartment_pagetable(
+    void* root, snmalloc::address_t base, size_t size)
+  {
+    if (base % PAGE_SIZE != 0 || size % PAGE_SIZE != 0)
+    {
+      LOG_MOD(ERROR, Pagetable)
+        << "Invalid alignment of base (" << base << ") or size (" << size
+        << ") of range when trying to expand pagetable." << LOG_ENDL;
+      kabort();
+    }
+    else if (root == kernel_pagetable)
+    {
+      LOG_MOD(ERROR, Pagetable) << "Calling remove_from_compartment_pagetable "
+                                   "with kernel pagetable pointer"
+                                << LOG_ENDL;
+      kabort();
+    }
+    remove_from_pagetable<false, PML4_LEVEL>(
+      static_cast<PagetableEntry*>(root), base, size);
   }
 
   PagetableEntry* get_kernel_pagetable_entry(snmalloc::address_t base)

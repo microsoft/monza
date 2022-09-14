@@ -33,7 +33,8 @@ namespace monza
 
   /**
    * The thread id is cached in TLS to avoid needing to request the core id.
-   * Use core id of 0 for the initial core
+   * Use core id of 0 for both the initial core as well as for compartment
+   * threads.
    */
   static thread_local monza_thread_t thread_id = core_to_thread(0);
 
@@ -122,12 +123,14 @@ namespace monza
     return thread_id;
   }
 
+  // Should never be called from a compartment.
   bool is_thread_done(monza_thread_t id)
   {
     return get_thread_execution_context(thread_to_core(id))
              .done.load(std::memory_order_acquire) == 1;
   }
 
+  // Should never be called from a compartment.
   void join_thread(monza_thread_t id)
   {
     while (!is_thread_done(id))
@@ -137,12 +140,14 @@ namespace monza
   }
 
   // Temporarily keep until mutex and condvar implementations removed.
+  // Should never be called from a compartment.
   void sleep_thread()
   {
     per_core_semaphores[thread_to_core(thread_id)].acquire();
   }
 
   // Temporarily keep until mutex and condvar implementations removed.
+  // Should never be called from a compartment.
   void wake_thread(monza_thread_t thread)
   {
     per_core_semaphores[thread_to_core(thread)].release();
@@ -155,25 +160,55 @@ namespace monza
 
   thread_local void* dynamic_tls[DYNAMIC_TLS_SIZE] = {};
   uint16_t current_dynamic_tls_slot = 0;
+  thread_local uint16_t compartment_dynamic_tls_slot = GLOBAL_DYNAMIC_TLS_SIZE;
 
   bool allocate_tls_slot(uint16_t* key)
   {
-    if (current_dynamic_tls_slot == (GLOBAL_DYNAMIC_TLS_SIZE - 1))
+    if (monza::is_compartment())
     {
-      return false;
+      if (compartment_dynamic_tls_slot == (DYNAMIC_TLS_SIZE - 1))
+      {
+        return false;
+      }
+      else
+      {
+        *key = compartment_dynamic_tls_slot++;
+        return true;
+      }
     }
     else
     {
-      *key = current_dynamic_tls_slot++;
-      return true;
+      if (current_dynamic_tls_slot == (GLOBAL_DYNAMIC_TLS_SIZE - 1))
+      {
+        return false;
+      }
+      else
+      {
+        *key = current_dynamic_tls_slot++;
+        return true;
+      }
     }
   }
 
   static bool is_slot_valid(uint16_t key)
   {
-    if (key >= current_dynamic_tls_slot)
+    if (monza::is_compartment())
     {
-      return false;
+      if (key >= compartment_dynamic_tls_slot)
+      {
+        return false;
+      }
+      else if (key >= current_dynamic_tls_slot && key < GLOBAL_DYNAMIC_TLS_SIZE)
+      {
+        return false;
+      }
+    }
+    else
+    {
+      if (key >= current_dynamic_tls_slot)
+      {
+        return false;
+      }
     }
     return true;
   }

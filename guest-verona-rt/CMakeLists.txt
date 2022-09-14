@@ -95,6 +95,14 @@ if(USE_SCHED_STATS)
 endif()
 target_compile_definitions(monza_compatibility INTERFACE -DSNMALLOC_CHEAP_CHECKS)
 
+# Interface library for user compartments that will only be running in ring 3
+add_library(monza_compartment_compatibility INTERFACE)
+target_compile_options(monza_compartment_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-mcompartment>)
+target_compile_definitions(monza_compartment_compatibility INTERFACE MONZA_COMPARTMENT_NAMESPACE)
+target_link_libraries(monza_compartment_compatibility INTERFACE
+  monza_compatibility
+)
+
 # Interface library for the user application running in ring 0
 add_library(monza_app INTERFACE)
 target_link_libraries(monza_app INTERFACE
@@ -106,6 +114,15 @@ add_library(monza_kernel_compatibility INTERFACE)
 target_include_directories(monza_kernel_compatibility INTERFACE include/private)
 target_include_directories(monza_kernel_compatibility INTERFACE experimental/include)
 target_link_libraries(monza_kernel_compatibility INTERFACE
+  monza_compatibility
+)
+
+# Interface library for building system components that could run in ring 3
+add_library(monza_hybrid_compatibility INTERFACE)
+target_include_directories(monza_hybrid_compatibility INTERFACE include/private)
+target_include_directories(monza_hybrid_compatibility INTERFACE experimental/include)
+target_compile_options(monza_hybrid_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-mcompartment>)
+target_link_libraries(monza_hybrid_compatibility INTERFACE
   monza_compatibility
 )
 
@@ -139,7 +156,7 @@ set(COMPILER_RT_BUILD_BUILTINS ON)
 set(COMPILER_RT_BUILD_SANITIZERS OFF)
 set(COMPILER_RT_BUILD_XRAY OFF)
 add_subdirectory(../external/llvm-project/compiler-rt compiler-rt EXCLUDE_FROM_ALL)
-target_link_libraries(clang_rt.builtins-${ARCH} PRIVATE monza_kernel_compatibility)
+target_link_libraries(clang_rt.builtins-${ARCH} PRIVATE monza_hybrid_compatibility)
 add_library(compiler-rt-builtins ALIAS clang_rt.builtins-${ARCH})
 target_link_libraries(monza_app INTERFACE compiler-rt-builtins)
 
@@ -148,15 +165,15 @@ set(MONZA_LIBC_LIBCXX_HEADERS ${LIBCXX_HEADERS})
 set(MONZA_LIBC_COMPILER_HEADERS ${COMPILER_HEADERS})
 add_subdirectory(monza-libc ${LIBC} EXCLUDE_FROM_ALL)
 add_dependencies(monza_compatibility monza_libc_headers)
-target_link_libraries(monza_libc_tophalf_musl PRIVATE monza_kernel_compatibility)
-target_link_libraries(monza_libc_tophalf PRIVATE monza_kernel_compatibility)
-target_link_libraries(monza_libc_bottomhalf PRIVATE monza_kernel_compatibility)
+target_link_libraries(monza_libc_tophalf_musl PRIVATE monza_hybrid_compatibility)
+target_link_libraries(monza_libc_tophalf PRIVATE monza_hybrid_compatibility)
+target_link_libraries(monza_libc_bottomhalf PRIVATE monza_hybrid_compatibility)
 target_link_libraries(monza_app INTERFACE monza_libc)
 
 # libcxxrt with Monza compatibility
 set(LIBCXXRT_NO_EMERGENCY_BUFFERS ON)
 add_subdirectory(../external/libcxxrt ./external/libcxxrt EXCLUDE_FROM_ALL)
-target_link_libraries(cxxrt-static monza_kernel_compatibility)
+target_link_libraries(cxxrt-static monza_hybrid_compatibility)
 target_compile_definitions(cxxrt-static PRIVATE LIBCXXRT_WEAK_LOCKS)
 target_link_libraries(monza_app INTERFACE cxxrt-static)
 target_include_directories(monza_compatibility INTERFACE ../external/libcxxrt/src)
@@ -180,7 +197,7 @@ set(LIBUNWIND_SUPPORTS_NODEFAULTLIBS_FLAG OFF)
 # Already set for the Monza build, no need to set for libunwind
 set(LIBUNWIND_HAS_NOSTDINCXX_FLAG OFF)
 add_subdirectory(../external/llvm-project/libunwind libunwind EXCLUDE_FROM_ALL)
-target_link_libraries(unwind_static PRIVATE monza_kernel_compatibility)
+target_link_libraries(unwind_static PRIVATE monza_hybrid_compatibility)
 # Disable warnings from baremetal build and tracing
 target_compile_options(unwind_static PRIVATE
   -Wno-unused-but-set-variable
@@ -193,6 +210,7 @@ add_subdirectory(monza-libcxx ${LIBCXX} EXCLUDE_FROM_ALL)
 target_link_libraries(monza_compatibility INTERFACE monza_libcxx_headers)
 # Some of the STL functionality (ex: streams) will fail inside compartments,
 # but there is no workaround for globals in header-only libraries at the moment.
+#target_link_libraries(monza_libcxx PRIVATE monza_hybrid_compatibility)
 target_link_libraries(monza_libcxx PRIVATE monza_kernel_compatibility)
 target_link_libraries(monza_app INTERFACE monza_libcxx)
 
@@ -261,7 +279,7 @@ macro(create_test target_name artefact_list test_name test_folder category)
     aux_source_directory(${test_folder}/${compartment} SRC)
     add_library(${test_name}-${compartment} STATIC ${SRC})
     target_include_directories(${test_name}-${compartment} PRIVATE test)
-    target_link_libraries(${test_name}-${compartment} PRIVATE monza_app)
+    target_link_libraries(${test_name}-${compartment} PRIVATE monza_compartment_compatibility)
     list(APPEND compartment_list ${test_name}-${compartment})
   endforeach()
   unset(SRC)

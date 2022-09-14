@@ -10,4 +10,5 @@ namespace monza
   void monza_initializers();
   void monza_finalizers();
   [[noreturn]] void monza_exit(int status);
+  void* compartment_exit(int status);
 }

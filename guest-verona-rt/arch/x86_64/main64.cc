@@ -38,6 +38,7 @@ namespace monza
     ap_init();
     setup_hypervisor_stage2();
     setup_gdt();
+    setup_compartments();
     setup_pagetable();
     for (auto& range : HeapRanges::all())
     {
