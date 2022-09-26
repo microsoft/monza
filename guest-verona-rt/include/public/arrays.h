@@ -75,17 +75,33 @@ namespace monza
     /**
      * Create the array to be a copy of a given span.
      */
-    SmartArray(std::span<const value_type> view) : SmartArray(view.size())
+    SmartArray(std::span<const value_type> view)
+    : length(view.size()),
+      impl(static_cast<value_type*>(
+        std::aligned_alloc(alignof(value_type), sizeof(value_type) * length)))
     {
-      std::copy(view.begin(), view.end(), impl.get());
+      size_t i = 0;
+      for (const auto& entry : view)
+      {
+        new (&(impl.get()[i])) value_type(entry);
+        ++i;
+      }
     }
 
     /**
      * Create the array from an initializer list.
      */
-    SmartArray(std::initializer_list<value_type> list) : SmartArray(list.size())
+    SmartArray(std::initializer_list<value_type> list)
+    : length(list.size()),
+      impl(static_cast<value_type*>(
+        std::aligned_alloc(alignof(value_type), sizeof(value_type) * length)))
     {
-      std::copy(list.begin(), list.end(), impl.get());
+      size_t i = 0;
+      for (const auto& entry : list)
+      {
+        new (&(impl.get()[i])) value_type(entry);
+        ++i;
+      }
     }
 
     /**
