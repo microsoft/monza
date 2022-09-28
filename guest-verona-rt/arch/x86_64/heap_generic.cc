@@ -29,7 +29,6 @@ namespace monza
     // Compute the heap start, since the first memory range includes other
     // elements as well.
     uint8_t* heap_start = &__heap_start;
-    heap_start = snmalloc::pointer_align_up<PAGE_SIZE, uint8_t>(heap_start);
 
     // Compute RAM end-point from the first E820 RAM entry which does not start
     // for address 0.
@@ -46,7 +45,13 @@ namespace monza
         // The first range starts from the __heap_start marker.
         if (first_entry)
         {
-          HeapRanges::add(
+          if (snmalloc::address_cast(heap_start) > entry.addr + entry.size)
+          {
+            LOG(ERROR) << "RAM does not cover initial image plus minimal heap."
+                       << LOG_ENDL;
+            kabort();
+          }
+          HeapRanges::set_first(
             {heap_start,
              entry.addr + entry.size - snmalloc::address_cast(heap_start)});
           first_entry = false;

@@ -603,6 +603,11 @@ namespace snmalloc
   public:
     class Backend
     {
+      static void report_out_of_memory()
+      {
+        report_fatal_error("Out of memory");
+      }
+
     public:
       using SlabMetadata = FrontendSlabMetadata;
 
@@ -616,7 +621,12 @@ namespace snmalloc
         }
         else
         {
-          return BackendInner::alloc_meta_data<T>(local_state, size);
+          auto metadata = BackendInner::alloc_meta_data<T>(local_state, size);
+          if (metadata == nullptr)
+          {
+            report_out_of_memory();
+          }
+          return metadata;
         }
       }
 
@@ -629,7 +639,12 @@ namespace snmalloc
         }
         else
         {
-          return BackendInner::alloc_chunk(local_state, size, ras);
+          auto chunk = BackendInner::alloc_chunk(local_state, size, ras);
+          if (chunk.first == nullptr)
+          {
+            report_out_of_memory();
+          }
+          return chunk;
         }
       }
 

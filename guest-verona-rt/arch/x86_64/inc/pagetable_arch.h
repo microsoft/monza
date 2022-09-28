@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <address.h>
 #include <pagetable.h>
 
 namespace monza
@@ -46,14 +47,15 @@ namespace monza
   };
 
   template<bool is_kernel>
-  static constexpr uint64_t pagetable_intermediate_permissions()
+  static inline constexpr uint64_t pagetable_intermediate_permissions()
   {
     return is_kernel ? PTE_PRESENT | PTE_WRITABLE :
                        PTE_PRESENT | PTE_WRITABLE | PTE_USER;
   }
 
   template<bool is_kernel>
-  static constexpr uint64_t pagetable_leaf_permissions(PagetablePermission perm)
+  static inline constexpr uint64_t
+  pagetable_leaf_permissions(PagetablePermission perm)
   {
     switch (perm)
     {
@@ -74,7 +76,14 @@ namespace monza
     }
   }
 
-  static constexpr uint64_t pagetable_type_permissions(PagetableType type)
+  static inline constexpr uint64_t
+  pagetable_leaf_pagesize(PagetableLevels level)
+  {
+    return level == PT_LEVEL ? 0 : PTE_PAGESIZE;
+  }
+
+  static inline constexpr uint64_t
+  pagetable_type_permissions(PagetableType type)
   {
     switch (type)
     {
@@ -97,7 +106,7 @@ namespace monza
 
   public:
     template<bool is_kernel>
-    void set_next_level(void* ptr, PagetableType type)
+    inline void set_next_level(void* ptr, PagetableType type)
     {
       entry = reinterpret_cast<uint64_t>(ptr) |
         pagetable_type_permissions(type) |
@@ -105,11 +114,15 @@ namespace monza
     }
 
     template<bool is_kernel>
-    void set_leaf(
-      snmalloc::address_t addr, PagetableType type, PagetablePermission perm)
+    inline void set_leaf(
+      snmalloc::address_t addr,
+      PagetableType type,
+      PagetablePermission perm,
+      PagetableLevels level)
     {
       entry = static_cast<uint64_t>(addr) | pagetable_type_permissions(type) |
-        pagetable_leaf_permissions<is_kernel>(perm) | PTE_PAGESIZE;
+        pagetable_leaf_permissions<is_kernel>(perm) |
+        pagetable_leaf_pagesize(level);
     }
 
     void reset()
@@ -149,14 +162,13 @@ namespace monza
 
   struct MapEntry
   {
-    void* start;
-    void* end;
+    AddressRange range;
     PagetablePermission perm;
   };
 
   extern MapEntry interrupt_stack_map[1];
 
-  extern PagetableEntry* get_kernel_pagetable_entry(snmalloc::address_t base);
+  extern PagetableEntry get_kernel_pagetable_entry(snmalloc::address_t base);
 }
 
 // Outside of namespace to use from ASM.

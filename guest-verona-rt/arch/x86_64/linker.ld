@@ -145,9 +145,7 @@ SECTIONS
     . = . + HV_LOADER_DATA_SIZE;
   } : NONE
 
-  /* Align the BSS (which includes all other unloaded memory as well) to the PAGE_SIZE */
-  /* This ensures that any platform-specific memory acceptence can be done at PAGE_SIZE granularity */
-  .bss (NOLOAD) : ALIGN(PAGE_SIZE)
+  .bss (NOLOAD) : ALIGN(8)
   {
     __unloaded_start = .;
     __bss_start = .;
@@ -160,13 +158,6 @@ SECTIONS
     __stack_start = .;
     . = . + STACK_SIZE;
     __stack_end = .;
-    /* PAGE_SIZE alignment as these need special permissions in the pagetable */
-    . = ALIGN(PAGE_SIZE);
-    __interrupt_stacks_start = .;
-    *(.interrupt_stacks)
-    __interrupt_stacks_end = .;
-    /* PAGE_SIZE alignment to revert to regular pagetable mappings */
-    . = ALIGN(PAGE_SIZE);
     __heap_start = .;
   } : NONE
 }

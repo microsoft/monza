@@ -31,10 +31,7 @@ namespace monza
   static constexpr snmalloc::address_t IO_SHARED_MEMORY_START =
     TOP_OF_MEMORY - IO_SHARED_MEMORY_SIZE;
 
-  constexpr static struct MapEntry predefined_map[] = {
-    {nullptr, &__elf_start, PT_NO_ACCESS},
-    {&__elf_start, &__elf_writable_start, PT_KERNEL_READ},
-    {&__elf_writable_start, &__heap_start, PT_KERNEL_WRITE}};
+  __attribute__((section(".data"))) static MapEntry predefined_map[3]{};
 
   inline constexpr static size_t pagetable_entry_count()
   {
@@ -67,8 +64,6 @@ namespace monza
     return (address >> pagetable_entry_coverage_bits(level)) &
       (pagetable_entry_count() - 1);
   }
-
-  static PagetableEntry* compartment_template_first_pdp_template;
 
   static inline void* alloc_pagetable_node(bool is_kernel)
   {
@@ -138,7 +133,7 @@ namespace monza
       }
       else
       {
-        root[index].set_leaf<is_kernel>(addr, type, perm);
+        root[index].set_leaf<is_kernel>(addr, type, perm, level);
       }
     }
   }
@@ -202,18 +197,24 @@ namespace monza
     }
   }
 
-  static inline PagetableEntry* get_pagetable_entry(
+  static inline PagetableEntry get_pagetable_entry(
     PagetableEntry* root, PagetableLevels level, snmalloc::address_t base)
   {
-    PagetableEntry* current = root;
-    while (level != PAGETABLE_LOWEST_LEVEL && current != nullptr &&
-           !current->is_large_mapping())
+    if (root == nullptr)
     {
-      auto index = pagetable_index(base, level);
-      PagetableEntry* next_root = root[index].next_level();
-      level = next_pagetable_level(level);
+      return PagetableEntry();
     }
-    return current;
+    auto index = pagetable_index(base, level);
+    PagetableEntry entry = root[index];
+    if (level == PAGETABLE_LOWEST_LEVEL || root->is_large_mapping())
+    {
+      return entry;
+    }
+    else
+    {
+      return get_pagetable_entry(
+        entry.next_level(), next_pagetable_level(level), base);
+    }
   }
 
   static void kernel_initializer_from_map(std::span<const MapEntry> map)
@@ -221,9 +222,7 @@ namespace monza
     for (auto& entry : map)
     {
       add_to_kernel_pagetable(
-        snmalloc::address_cast(entry.start),
-        snmalloc::pointer_diff(entry.start, entry.end),
-        entry.perm);
+        entry.range.start, entry.range.end - entry.range.start, entry.perm);
     }
   }
 
@@ -231,9 +230,16 @@ namespace monza
   {
     kernel_pagetable = alloc_pagetable_node(true);
 
-    kernel_initializer_from_map(predefined_map);
+    // Late initialization, since address casting cannot be constexpr.
+    // Extend writable mapping into heap start to avoid force alignment.
+    new (predefined_map) decltype(predefined_map){
+      {AddressRange(nullptr, &__elf_start), PT_NO_ACCESS},
+      {AddressRange(&__elf_start, &__elf_writable_start), PT_KERNEL_READ},
+      {AddressRange(&__elf_writable_start, &__heap_start)
+         .align_up_end(PAGE_SIZE),
+       PT_KERNEL_WRITE}};
 
-    kernel_initializer_from_map(interrupt_stack_map);
+    kernel_initializer_from_map(std::span(predefined_map));
 
     if (local_apic_mapping != 0)
     {
@@ -244,37 +250,42 @@ namespace monza
     add_to_kernel_pagetable(
       IO_SHARED_MEMORY_START, IO_SHARED_MEMORY_SIZE, monza::PT_KERNEL_WRITE);
 
-    for (auto& range : HeapRanges::all())
+    // The first heap range might not be PAGE_SIZE aligned at its start, but the
+    // part before the first alignment is already mapped.
+    auto first_heap_range =
+      AddressRange(HeapRanges::first()).align_up_start(PAGE_SIZE);
+    // If the range is too small to have been aligned, then the entire heap was
+    // already mapped and we can skip.
+    if (!first_heap_range.empty())
+    {
+      add_to_kernel_pagetable(
+        first_heap_range.start, first_heap_range.size(), PT_KERNEL_WRITE);
+    }
+    // Additional heap ranges are PAGE_SIZE aligned on both ends.
+    for (auto& range : HeapRanges::additional())
     {
       add_to_kernel_pagetable(
         snmalloc::address_cast(range.data()), range.size(), PT_KERNEL_WRITE);
     }
+
+    // The interrupt stack map is allocated on the heap to scale with the number
+    // of cores. Change the heap entry corresponding to it with the right
+    // permissions.
+    kernel_initializer_from_map(std::span(interrupt_stack_map));
   }
 
   static void compartment_initializer_from_map(
-    PagetableEntry* pdp_entry, std::span<const MapEntry> map)
+    PagetableEntry* root, std::span<const MapEntry> map)
   {
     for (auto& entry : map)
     {
-      add_to_pagetable<false, PDP_LEVEL>(
-        compartment_template_first_pdp_template,
-        snmalloc::address_cast(entry.start),
-        snmalloc::pointer_diff(entry.start, entry.end),
+      add_to_pagetable<false, PML4_LEVEL>(
+        root,
+        entry.range.start,
+        entry.range.end - entry.range.start,
         entry.perm,
         PERSISTENT_TYPE);
     }
-  }
-
-  static void create_compartment_template_pdp()
-  {
-    compartment_template_first_pdp_template =
-      static_cast<PagetableEntry*>(alloc_pagetable_node(false));
-
-    compartment_initializer_from_map(
-      compartment_template_first_pdp_template, predefined_map);
-
-    compartment_initializer_from_map(
-      compartment_template_first_pdp_template, interrupt_stack_map);
   }
 
   void setup_pagetable_generic()
@@ -299,16 +310,12 @@ namespace monza
 
   void* create_compartment_pagetable()
   {
-    if (compartment_template_first_pdp_template == nullptr)
-    {
-      create_compartment_template_pdp();
-    }
-
     PagetableEntry* root =
       static_cast<PagetableEntry*>(alloc_pagetable_node(false));
 
-    copy_to_pagetable<false, PML4_LEVEL, PDP_LEVEL>(
-      root, 0, compartment_template_first_pdp_template);
+    compartment_initializer_from_map(root, predefined_map);
+
+    compartment_initializer_from_map(root, interrupt_stack_map);
 
     return root;
   }
@@ -353,7 +360,7 @@ namespace monza
       static_cast<PagetableEntry*>(root), base, size);
   }
 
-  PagetableEntry* get_kernel_pagetable_entry(snmalloc::address_t base)
+  PagetableEntry get_kernel_pagetable_entry(snmalloc::address_t base)
   {
     return get_pagetable_entry(
       static_cast<PagetableEntry*>(kernel_pagetable), PML4_LEVEL, base);

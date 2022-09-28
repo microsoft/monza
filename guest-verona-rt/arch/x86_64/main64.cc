@@ -29,23 +29,15 @@ namespace monza
       kabort();
     }
     fixed_handle.init(
-      nullptr,
-      first_range.data(),
-      HeapRanges::largest_valid_address() -
-        snmalloc::address_cast(first_range.data()) + 1,
-      first_range.size());
+      nullptr, first_range.data(), HeapRanges::size(), first_range.size());
     setup_cores();
     ap_init();
     setup_hypervisor_stage2();
     setup_gdt();
     setup_compartments();
     setup_pagetable();
-    for (auto& range : HeapRanges::all())
+    for (auto& range : HeapRanges::additional())
     {
-      if (range.data() == first_range.data())
-      {
-        continue;
-      }
       fixed_handle.add_range(nullptr, range.data(), range.size());
     }
     setup_idt();

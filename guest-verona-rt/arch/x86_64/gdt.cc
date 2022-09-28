@@ -2,25 +2,23 @@
 // SPDX-License-Identifier: MIT
 
 #include <crt.h>
+#include <early_alloc.h>
 #include <gdt.h>
 #include <iterator>
 #include <pagetable_arch.h>
 #include <per_core_data.h>
+#include <snmalloc.h>
+#include <span>
 
 namespace monza
 {
   static constexpr size_t INTERRUPT_STACK_SIZE = 64 * 1024;
 
-  extern "C" uint8_t __interrupt_stacks_start;
-  extern "C" uint8_t __interrupt_stacks_end;
-
-  __attribute__((section(".interrupt_stacks"))) static char
-    per_core_interrupt_stack[MAX_CORE_COUNT][INTERRUPT_STACK_SIZE] = {};
   __attribute__((section(".protected_data")))
-  TaskStateSegment per_core_tss[std::size(per_core_interrupt_stack)] = {};
+  TaskStateSegment per_core_tss[MAX_CORE_COUNT] = {};
   __attribute__((section(".protected_data"))) GDT gdt = {};
 
-  MapEntry interrupt_stack_map[1] = {};
+  __attribute__((section(".data"))) MapEntry interrupt_stack_map[1]{};
 
   extern "C" void install_gdt()
   {
@@ -45,25 +43,26 @@ namespace monza
     // constexpr constructor.
     gdt.fill_tss();
 
-    // .interrupts_stacks section is not loaded so we need to manually
-    // initialize it to 0. Also set up the page mappings for them.
-    memset(
-      per_core_interrupt_stack,
-      0,
-      std::size(per_core_interrupt_stack) *
-        std::size(per_core_interrupt_stack[0]));
+    // Allocate all the interrupt stacks as one big blob, since they need
+    // special pagetable permission.
+    const size_t interrupt_stack_allocation_size = snmalloc::bits::align_up(
+      PerCoreData::get_num_cores() * INTERRUPT_STACK_SIZE, PAGE_SIZE);
+    auto per_core_interrupt_stacks_allocation =
+      static_cast<uint8_t*>(early_alloc_zero(interrupt_stack_allocation_size));
+    const auto per_core_interrupt_stacks = std::span(
+      per_core_interrupt_stacks_allocation, interrupt_stack_allocation_size);
+    for (size_t i = 0; i < PerCoreData::get_num_cores(); ++i)
+    {
+      per_core_tss[i].ist1 = snmalloc::pointer_offset<void>(
+        per_core_interrupt_stacks.data(), (i + 1) * INTERRUPT_STACK_SIZE);
+    }
+
     // Set to writeable by kernel and not accesible by user
     // mode. This is needed since interrupt handler uses the user-mode page
     // table root, but kernel protection options.
-    interrupt_stack_map[0] = MapEntry{.start = &__interrupt_stacks_start,
-                                      .end = &__interrupt_stacks_end,
-                                      .perm = PT_FORCE_KERNEL_WRITE};
-
-    for (size_t i = 0; i < std::size(per_core_tss); ++i)
-    {
-      per_core_tss[i].ist1 =
-        per_core_interrupt_stack[i] + std::size(per_core_interrupt_stack[i]);
-    }
+    new (interrupt_stack_map) decltype(interrupt_stack_map){
+      {.range = AddressRange(per_core_interrupt_stacks),
+       .perm = PT_FORCE_KERNEL_WRITE}};
 
     install_gdt();
   }

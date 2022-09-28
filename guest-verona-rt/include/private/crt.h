@@ -19,7 +19,7 @@ namespace monza
     {}
 #else
 #  define kernel_assert(expr) \
-    if (!expr) \
+    if (!(expr)) \
     { \
       LOG(ERROR) << "Kernel assertion failed " << #expr << LOG_ENDL; \
     }

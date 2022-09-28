@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <address.h>
 #include <crt.h>
 #include <cstdint>
 #include <cstdlib>
@@ -18,71 +19,98 @@ namespace monza
     static constexpr size_t MAX_RANGE_COUNT = 32;
 
   private:
-    static inline constinit std::span<uint8_t> heap_ranges[MAX_RANGE_COUNT]{};
-    static inline constinit size_t heap_range_count = 0;
+    // The first range can start at an arbitrary alignment, but ends on a 2MB
+    // one.
+    static inline constinit std::span<uint8_t> first_range;
+    // The any additional ranges start and end with a 2MB alignment.
+    static inline constinit std::span<uint8_t>
+      additional_ranges[MAX_RANGE_COUNT]{};
+    static inline constinit size_t additional_ranges_count = 0;
+
+    static inline std::span<uint8_t> align_end(const std::span<uint8_t>& range)
+    {
+      auto address_range = AddressRange(range);
+      auto aligned_address_range = address_range.align_down_end(PAGE_SIZE);
+      if (aligned_address_range.empty())
+      {
+        LOG(ERROR) << "Heap range end (" << range.data() << " " << range.size()
+                   << ") cannot be aligned to page boundary." << LOG_ENDL;
+        kabort();
+      }
+      return range.first(
+        aligned_address_range.end - aligned_address_range.start);
+    }
 
     static inline std::span<uint8_t> align(const std::span<uint8_t>& range)
     {
-      void* aligned_pointer =
-        snmalloc::pointer_align_up(range.data(), PAGE_SIZE);
-      size_t start_offset =
-        snmalloc::pointer_diff(range.data(), aligned_pointer);
-      size_t aligned_size = 0;
-      if (range.size() < (start_offset + PAGE_SIZE))
+      auto address_range = AddressRange(range);
+      auto aligned_address_range = address_range.align_restrict(PAGE_SIZE);
+      if (aligned_address_range.empty())
       {
-        LOG(ERROR) << "Heap range (0x" << range.data() << " " << range.size()
+        LOG(ERROR) << "Heap range (" << range.data() << " " << range.size()
                    << ") cannot be aligned to page boundary." << LOG_ENDL;
         kabort();
       }
       return range.subspan(
-        start_offset,
-        snmalloc::bits::align_down(range.size() - start_offset, PAGE_SIZE));
+        aligned_address_range.start - address_range.start,
+        aligned_address_range.end - aligned_address_range.start);
     }
 
   public:
+    static inline void set_first(std::span<uint8_t> range)
+    {
+      first_range = align_end(range);
+    }
+
     static inline void add(std::span<uint8_t> range)
     {
-      if (heap_range_count == std::size(heap_ranges))
+      if (additional_ranges_count == std::size(additional_ranges))
       {
         LOG(ERROR) << "Attempting to add too many ranges to the heap."
                    << LOG_ENDL;
         kabort();
       }
-      heap_ranges[heap_range_count++] = align(range);
+      additional_ranges[additional_ranges_count++] = align(range);
     }
 
     static inline std::span<uint8_t> first()
     {
-      return heap_ranges[0];
+      return first_range;
     }
 
-    static inline std::span<const std::span<uint8_t>> all()
+    static inline std::span<const std::span<uint8_t>> additional()
     {
-      return std::span(heap_ranges, heap_range_count);
+      return std::span(additional_ranges, additional_ranges_count);
     }
 
     static inline snmalloc::address_t largest_valid_address()
     {
-      if (heap_range_count == 0)
+      if (additional_ranges_count == 0)
       {
-        return 0;
+        return AddressRange(first_range).end - 1;
       }
       else
       {
-        return snmalloc::address_cast(
-                 heap_ranges[heap_range_count - 1].data()) +
-          heap_ranges[heap_range_count - 1].size() - 1;
+        return AddressRange(additional_ranges[additional_ranges_count - 1])
+                 .end -
+          1;
       }
+    }
+
+    static inline size_t size()
+    {
+      return largest_valid_address() - AddressRange(first_range).start + 1;
     }
 
     static inline bool is_heap_address(snmalloc::address_t address)
     {
-      for (size_t i = 0; i < heap_range_count; ++i)
+      if (AddressRange(first_range).overlaps(address))
       {
-        snmalloc::address_t range_start =
-          snmalloc::address_cast(heap_ranges[i].data());
-        snmalloc::address_t range_end = range_start + heap_ranges[i].size();
-        if (range_start <= address && address < range_end)
+        return true;
+      }
+      for (size_t i = 0; i < additional_ranges_count; ++i)
+      {
+        if (AddressRange(additional_ranges[i]).overlaps(address))
         {
           return true;
         }

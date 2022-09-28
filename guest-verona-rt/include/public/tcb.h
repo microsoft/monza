@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace monza
 {
   class ArchitecturalCompartmentBase;
