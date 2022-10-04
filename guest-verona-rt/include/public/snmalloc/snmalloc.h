@@ -159,7 +159,9 @@ namespace monza
 
 namespace snmalloc
 {
-  static std::pair<capptr::Chunk<void>, FrontendSlabMetadata*>
+  using SlabMetadata = LaxProvenanceSlabMetadataMixin<FrontendSlabMetadata>;
+
+  static std::pair<capptr::Chunk<void>, SlabMetadata*>
   compartment_alloc_chunk_wrapper(size_t size, uintptr_t ras)
   {
     void* raw_result = monza::compartment_alloc_chunk(size, ras);
@@ -170,16 +172,15 @@ namespace snmalloc
     capptr::Chunk<void> result_first(
       *reinterpret_cast<capptr::Chunk<void>*>(raw_result));
     memset(raw_result, 0, sizeof(decltype(result_first)));
-    FrontendSlabMetadata* result_second =
-      reinterpret_cast<FrontendSlabMetadata*>(raw_result);
+    SlabMetadata* result_second = reinterpret_cast<SlabMetadata*>(raw_result);
     return {result_first, result_second};
   }
 
-  static capptr::Chunk<void> compartment_alloc_meta_data_wrapper(size_t size)
+  static capptr::Alloc<void> compartment_alloc_meta_data_wrapper(size_t size)
   {
     void* raw_result = monza::compartment_alloc_meta_data(size);
-    capptr::Chunk<void> result(
-      *reinterpret_cast<capptr::Chunk<void>*>(raw_result));
+    capptr::Alloc<void> result =
+      *reinterpret_cast<capptr::Alloc<void>*>(raw_result);
     memset(raw_result, 0, sizeof(decltype(result)));
     return result;
   }
@@ -193,7 +194,7 @@ namespace snmalloc
   class MonzaCommonConfig : public CommonConfig
   {
   public:
-    using SlabMetadata = FrontendSlabMetadata;
+    using SlabMetadata = LaxProvenanceSlabMetadataMixin<FrontendSlabMetadata>;
     using PagemapEntry = FrontendMetaEntry<SlabMetadata>;
 
   protected:
@@ -424,97 +425,100 @@ namespace snmalloc
       return true;
     }
 
-    template<typename Pagemap, typename ParentRange = EmptyRange>
+    template<typename Pagemap>
     class MonzaRange
     {
-      ParentRange parent{};
-
-      List::Head head{};
-
-      monza::CompartmentOwner owner = monza::CompartmentOwner::null();
-      void* compartment_pagetable_root = nullptr;
-
     public:
-      /**
-       * We use a nested Apply type to enable a Pipe operation.
-       */
-      template<typename ParentRange2>
-      using Apply = MonzaRange<Pagemap, ParentRange2>;
-
-      static constexpr bool Aligned = ParentRange::Aligned;
-
-      static constexpr bool ConcurrencySafe = false;
-
-      constexpr MonzaRange() = default;
-
-      capptr::Chunk<void> alloc_range(size_t size)
+      template<typename ParentRange = EmptyRange<>>
+      class Type : public ContainsParent<ParentRange>
       {
-        SNMALLOC_ASSERT((size % monza::MIN_OWNERSHIP_SIZE) == 0);
-        auto range = parent.alloc_range(size);
-        if ((range != nullptr) && (monza::CompartmentOwner::null() != owner))
+        using ContainsParent<ParentRange>::parent;
+
+        List::Head head{};
+
+        monza::CompartmentOwner owner = monza::CompartmentOwner::null();
+        void* compartment_pagetable_root = nullptr;
+
+      public:
+        static constexpr bool Aligned = ParentRange::Aligned;
+
+        static constexpr bool ConcurrencySafe = false;
+
+        using ChunkBounds = capptr::bounds::Arena;
+
+        constexpr Type() = default;
+
+        capptr::Arena<void> alloc_range(size_t size)
         {
-          add_monza_owner(address_cast(range), size, owner, &head);
-          monza::add_to_compartment_pagetable(
-            compartment_pagetable_root,
-            address_cast(range),
-            size,
-            monza::PagetablePermission::PT_COMPARTMENT_WRITE);
+          SNMALLOC_ASSERT((size % monza::MIN_OWNERSHIP_SIZE) == 0);
+          auto range = parent.alloc_range(size);
+          if ((range != nullptr) && (monza::CompartmentOwner::null() != owner))
+          {
+            add_monza_owner(address_cast(range), size, owner, &head);
+            monza::add_to_compartment_pagetable(
+              compartment_pagetable_root,
+              address_cast(range),
+              size,
+              monza::PagetablePermission::PT_COMPARTMENT_WRITE);
+          }
+          return range;
         }
-        return range;
-      }
 
-      void dealloc_range(capptr::Chunk<void> base, size_t size)
-      {
-        SNMALLOC_ASSERT((size % monza::MIN_OWNERSHIP_SIZE) == 0);
-        if ((monza::CompartmentOwner::null() != owner))
+        void dealloc_range(capptr::Arena<void> base, size_t size)
         {
-          monza::remove_from_compartment_pagetable(
-            compartment_pagetable_root, address_cast(base), size);
-          remove_monza_owner(address_cast(base), size, owner);
+          SNMALLOC_ASSERT((size % monza::MIN_OWNERSHIP_SIZE) == 0);
+          if ((monza::CompartmentOwner::null() != owner))
+          {
+            monza::remove_from_compartment_pagetable(
+              compartment_pagetable_root, address_cast(base), size);
+            remove_monza_owner(address_cast(base), size, owner);
+          }
+          parent.dealloc_range(base, size);
         }
-        parent.dealloc_range(base, size);
-      }
 
-      void dealloc_all()
-      {
-        head.forall([&](List::Entry& le) {
-          address_t chunk_address = concreteCompartmentPagemap.get_address(le);
-
-          // TODO: Not okay on CHERI.
-          void* p = reinterpret_cast<void*>(chunk_address);
-
-          // Clear the pagemap when we reclaim pages.  This should fix various
-          // internal invariant for snmalloc, which assumes memory is not
-          // abruptly recycled.
-          MonzaCommonConfig::PagemapEntry default_entry;
-          Pagemap::set_metaentry(
-            address_cast(p), monza::MIN_OWNERSHIP_SIZE, default_entry);
-
-          dealloc_range(capptr::Chunk<void>(p), monza::MIN_OWNERSHIP_SIZE);
-
-          le.clear_owner();
-        });
-      }
-
-      void set_owner(monza::CompartmentOwner new_owner, void* root)
-      {
-        if ((root == nullptr) && (monza::CompartmentOwner::null() != owner))
+        void dealloc_all()
         {
-          MonzaPal::error(
-            "set_owner: compartment owner supplied with null pagetable root");
-        }
-        owner = new_owner;
-        compartment_pagetable_root = root;
-      }
+          head.forall([&](List::Entry& le) {
+            address_t chunk_address =
+              concreteCompartmentPagemap.get_address(le);
 
-      ~MonzaRange()
-      {
-        dealloc_all();
-        if ((monza::CompartmentOwner::null() != owner))
-        {
-          monza::deallocate_compartment_pagetable(compartment_pagetable_root);
+            // TODO: Not okay on CHERI.
+            void* p = reinterpret_cast<void*>(chunk_address);
+
+            // Clear the pagemap when we reclaim pages.  This should fix various
+            // internal invariant for snmalloc, which assumes memory is not
+            // abruptly recycled.
+            MonzaCommonConfig::PagemapEntry default_entry;
+            Pagemap::set_metaentry(
+              address_cast(p), monza::MIN_OWNERSHIP_SIZE, default_entry);
+
+            dealloc_range(
+              capptr::Arena<void>::unsafe_from(p), monza::MIN_OWNERSHIP_SIZE);
+
+            le.clear_owner();
+          });
         }
-      }
+
+        void set_owner(monza::CompartmentOwner new_owner, void* root)
+        {
+          if ((root == nullptr) && (monza::CompartmentOwner::null() != owner))
+          {
+            MonzaPal::error(
+              "set_owner: compartment owner supplied with null pagetable root");
+          }
+          owner = new_owner;
+          compartment_pagetable_root = root;
+        }
+
+        ~Type()
+        {
+          dealloc_all();
+          if ((monza::CompartmentOwner::null() != owner))
+          {
+            monza::deallocate_compartment_pagetable(compartment_pagetable_root);
+          }
+        }
+      };
     };
   };
 
@@ -545,12 +549,13 @@ namespace snmalloc
     {
       // Global range of memory, expose this so can be filled by init.
       using GlobalR = Pipe<
+        EmptyRange<>,
         LargeBuddyRange<24, bits::BITS - 1, Pagemap>,
-        GlobalRange<>,
+        GlobalRange,
         LogRange<1>>;
 
       // Track stats of the committed memory
-      using Stats = Pipe<GlobalR, CommitRange<Pal>, StatsRange<>>;
+      using Stats = Pipe<GlobalR, CommitRange<Pal>, StatsRange>;
 
       // Special range for handling compartment ownership.
       using MonzaR =
@@ -572,13 +577,18 @@ namespace snmalloc
           LOCAL_CACHE_BITS,
           Pagemap,
           monza::MIN_OWNERSHIP_BITS>,
-        SmallBuddyRange<>>;
+        SmallBuddyRange>;
+
+      ObjectRange object_range;
 
     public:
       // Expose a global range for the initial allocation of meta-data.
-      using GlobalMetaRange = Pipe<ObjectRange, GlobalRange<>>;
+      using GlobalMetaRange = Pipe<ObjectRange, GlobalRange>;
 
-      ObjectRange object_range;
+      ObjectRange* get_object_range()
+      {
+        return &object_range;
+      }
 
       ObjectRange& get_meta_range()
       {
@@ -609,10 +619,10 @@ namespace snmalloc
       }
 
     public:
-      using SlabMetadata = FrontendSlabMetadata;
+      using SlabMetadata = LaxProvenanceSlabMetadataMixin<FrontendSlabMetadata>;
 
       template<typename T>
-      static capptr::Chunk<void>
+      static capptr::Alloc<void>
       alloc_meta_data(LocalState* local_state, size_t size)
       {
         if (monza::is_compartment())
@@ -630,7 +640,7 @@ namespace snmalloc
         }
       }
 
-      static std::pair<capptr::Chunk<void>, FrontendSlabMetadata*>
+      static std::pair<capptr::Chunk<void>, SlabMetadata*>
       alloc_chunk(LocalState& local_state, size_t size, uintptr_t ras)
       {
         if (monza::is_compartment())
@@ -650,7 +660,7 @@ namespace snmalloc
 
       static void dealloc_chunk(
         LocalState& local_state,
-        FrontendSlabMetadata& slab_metadata,
+        SlabMetadata& slab_metadata,
         capptr::Alloc<void> alloc,
         size_t size)
       {
@@ -713,9 +723,9 @@ namespace snmalloc
 
       // Push memory into the global range.
       range_to_pow_2_blocks<MIN_CHUNK_BITS>(
-        capptr::Chunk<void>(base),
+        capptr::Arena<void>::unsafe_from(base),
         length,
-        [&](capptr::Chunk<void> p, size_t sz, bool) {
+        [&](capptr::Arena<void> p, size_t sz, bool) {
           typename LocalState::GlobalR g;
           g.dealloc_range(p, sz);
         });
@@ -817,25 +827,22 @@ namespace snmalloc
     class Backend
     {
     public:
-      using SlabMetadata = FrontendSlabMetadata;
+      using SlabMetadata = LaxProvenanceSlabMetadataMixin<FrontendSlabMetadata>;
 
-      static std::pair<capptr::Chunk<void>, FrontendSlabMetadata*>
+      static std::pair<capptr::Chunk<void>, SlabMetadata*>
       alloc_chunk(LocalState&, size_t size, uintptr_t ras)
       {
         return compartment_alloc_chunk_wrapper(size, ras);
       }
 
       template<typename T>
-      static capptr::Chunk<void> alloc_meta_data(LocalState*, size_t size)
+      static capptr::Alloc<void> alloc_meta_data(LocalState*, size_t size)
       {
         return compartment_alloc_meta_data_wrapper(size);
       }
 
       static void dealloc_chunk(
-        LocalState&,
-        FrontendSlabMetadata&,
-        capptr::Alloc<void> alloc,
-        size_t size)
+        LocalState&, SlabMetadata&, capptr::Alloc<void> alloc, size_t size)
       {
         compartment_dealloc_chunk_wrapper(alloc, size);
       }

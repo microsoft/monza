@@ -85,7 +85,10 @@ namespace monza
     auto* meta = entry.get_slab_metadata();
 
     snmalloc::MonzaGlobals::Backend::dealloc_chunk(
-      *self->alloc_local_state, *meta, snmalloc::capptr::Alloc<void>(p), size);
+      *self->alloc_local_state,
+      *meta,
+      snmalloc::capptr::Alloc<void>::unsafe_from(p),
+      size);
   }
 
   extern "C" void compartment_forward_callback(

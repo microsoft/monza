@@ -51,7 +51,7 @@ namespace monza
   {
   private:
     std::shared_ptr<snmalloc::MonzaGlobals::LocalState> alloc_state;
-    monza_snmalloc::capptr::Chunk<void> base;
+    monza_snmalloc::capptr::Arena<void> base;
     size_t alloc_size;
 
   public:
@@ -114,7 +114,7 @@ namespace monza
       }
       else if (alloc_size > 0)
       {
-        alloc_state->object_range.dealloc_range(base, alloc_size);
+        alloc_state->get_object_range()->dealloc_range(base, alloc_size);
       }
     }
 
@@ -156,7 +156,7 @@ namespace monza
   private:
     void do_alloc(size_t init_size)
     {
-      base = alloc_state.get()->object_range.alloc_range(alloc_size);
+      base = alloc_state.get()->get_object_range()->alloc_range(alloc_size);
       if (base == nullptr)
       {
         LOG_MOD(ERROR, Compartment)
