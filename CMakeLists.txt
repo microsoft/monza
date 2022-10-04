@@ -59,25 +59,44 @@ ExternalProject_Add(external
   EXCLUDE_FROM_ALL true
 )
 
-# Point Monza at the LLVM install, we just built/downloaded
-list (APPEND MONZA_GUEST_EXTRA_CMAKE_ARGS
-  -DMONZA_LLVM_LOCATION=${LLVM_INSTALL}/install
-)
-
 ##########################################################
 #  Build Monza guest subproject
 ##########################################################
 set (GUEST_TEST_INSTALL ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/guests)
 list (APPEND MONZA_GUEST_EXTRA_CMAKE_ARGS
-  -DGUEST_TEST_INSTALL=${GUEST_TEST_INSTALL}
   -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+  -DMONZA_LLVM_LOCATION=${LLVM_INSTALL}/install
   -DMONZA_SYSTEMATIC_BUILD=${MONZA_SYSTEMATIC_BUILD}
+  -DGUEST_TEST_INSTALL=${GUEST_TEST_INSTALL}
 )
 
 ExternalProject_Add(guest-verona-rt
   SOURCE_DIR ${CMAKE_SOURCE_DIR}/guest-verona-rt
   DEPENDS external
   CMAKE_ARGS ${MONZA_GUEST_EXTRA_CMAKE_ARGS}
+  BUILD_ALWAYS true
+  TEST_AFTER_INSTALL true
+  TEST_EXCLUDE_FROM_MAIN true
+  STEP_TARGETS test
+  USES_TERMINAL_BUILD true
+  USES_TERMINAL_CONFIGURE true
+  USES_TERMINAL_INSTALL true
+  USES_TERMINAL_TEST true
+)
+
+##########################################################
+#  Build Monza example app subproject
+##########################################################
+set (APPS_INSTALL ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/apps)
+list (APPEND MONZA_APPS_EXTRA_CMAKE_ARGS
+  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+  -DMONZA_LLVM_LOCATION=${LLVM_INSTALL}/install
+  -DAPPS_INSTALL=${APPS_INSTALL}
+)
+ExternalProject_Add(apps-example
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/apps/example
+  DEPENDS external
+  CMAKE_ARGS ${MONZA_APPS_EXTRA_CMAKE_ARGS}
   BUILD_ALWAYS true
   TEST_AFTER_INSTALL true
   TEST_EXCLUDE_FROM_MAIN true

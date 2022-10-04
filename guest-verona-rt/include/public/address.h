@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <crt.h>
 #include <snmalloc.h>
 #include <span>
 #include <utility>
@@ -15,14 +14,6 @@ namespace monza
     const snmalloc::address_t start;
     const snmalloc::address_t end;
 
-  private:
-    inline constexpr AddressRange(snmalloc::address_t s, snmalloc::address_t e)
-    : start(s), end(e)
-    {
-      kernel_assert(
-        (s <= e) && "Start of address range should be lower or equal to end.");
-    }
-
   public:
     inline constexpr AddressRange() : start(0), end(0) {}
 
@@ -32,13 +23,13 @@ namespace monza
       end(start + (range.size() * sizeof(T)))
     {}
 
-    inline AddressRange(void* start, void* end)
-    : start(snmalloc::address_cast(start)), end(snmalloc::address_cast(end))
-    {
-      kernel_assert(
-        (this->start <= this->end) &&
-        "Start of address range should be lower or equal to end.");
-    }
+    inline constexpr AddressRange(snmalloc::address_t s, snmalloc::address_t e)
+    : start(s), end(e > s ? e : s)
+    {}
+
+    inline AddressRange(void* s, void* e)
+    : AddressRange(snmalloc::address_cast(s), snmalloc::address_cast(e))
+    {}
 
     inline constexpr AddressRange(const AddressRange& range)
     : start(range.start), end(range.end)
@@ -59,7 +50,7 @@ namespace monza
       return end - start;
     }
 
-    inline AddressRange align_up_start(size_t alignment)
+    inline AddressRange align_up_start(size_t alignment) const
     {
       auto aligned_start = snmalloc::bits::align_up(start, alignment);
       if (aligned_start >= end)
@@ -69,19 +60,19 @@ namespace monza
       return {aligned_start, end};
     }
 
-    inline AddressRange align_up_end(size_t alignment)
+    inline AddressRange align_up_end(size_t alignment) const
     {
       auto aligned_end = snmalloc::bits::align_up(end, alignment);
       return {start, aligned_end};
     }
 
-    inline AddressRange align_down_start(size_t alignment)
+    inline AddressRange align_down_start(size_t alignment) const
     {
       auto aligned_start = snmalloc::bits::align_down(start, alignment);
       return {aligned_start, end};
     }
 
-    inline AddressRange align_down_end(size_t alignment)
+    inline AddressRange align_down_end(size_t alignment) const
     {
       auto aligned_end = snmalloc::bits::align_down(end, alignment);
       if (aligned_end <= start)
@@ -91,7 +82,7 @@ namespace monza
       return {start, aligned_end};
     }
 
-    inline AddressRange align_restrict(size_t alignment)
+    inline AddressRange align_restrict(size_t alignment) const
     {
       auto aligned_start = snmalloc::bits::align_up(start, alignment);
       auto aligned_end = snmalloc::bits::align_down(end, alignment);
@@ -100,6 +91,12 @@ namespace monza
         return {aligned_start, aligned_start};
       }
       return {aligned_start, aligned_end};
+    }
+
+    inline bool check_valid_subrange(const AddressRange& other) const
+    {
+      return other.start >= start && other.start < end && other.end > start &&
+        other.end < end && other.start < other.end;
     }
   };
 }
