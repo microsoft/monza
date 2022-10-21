@@ -10,8 +10,9 @@
 namespace monza::host
 {
   /**
-   * An instance of a guest with the ringbuffers set up to simplify the host application.
-  */
+   * An instance of a guest with the ringbuffers set up to simplify the host
+   * application.
+   */
   template<size_t BUFFER_SIZE = 2 * 1024 * 1024>
   class RingbufferGuest
   {
@@ -31,17 +32,28 @@ namespace monza::host
     ringbuffer::WriterFactory base_factory;
 
   public:
-    RingbufferGuest(EnclaveType type, const std::string& path, size_t num_threads) :
-      vm_instance(EnclavePlatform<RingbufferInitializer>::create(type, path, num_threads)),
+    RingbufferGuest(
+      EnclaveType type, const std::string& path, size_t num_threads)
+    : vm_instance(EnclavePlatform<RingbufferInitializer>::create(
+        type, path, num_threads)),
       to_guest_ring(vm_instance->allocate_shared_array<uint8_t>(BUFFER_SIZE)),
-      to_guest_ring_offsets(vm_instance->allocate_shared<ringbuffer::Offsets>()),
+      to_guest_ring_offsets(
+        vm_instance->allocate_shared<ringbuffer::Offsets>()),
       from_guest_ring(vm_instance->allocate_shared_array<uint8_t>(BUFFER_SIZE)),
-      from_guest_ring_offsets(vm_instance->allocate_shared<ringbuffer::Offsets>()),
-      initializer({
-        to_guest_ring.enclave_start_address, BUFFER_SIZE, to_guest_ring_offsets.enclave_start_address,
-        from_guest_ring.enclave_start_address, BUFFER_SIZE, from_guest_ring_offsets.enclave_start_address}),
-      to_guest_def({to_guest_ring.host_span.data(), BUFFER_SIZE, &(to_guest_ring_offsets.host_object)}),
-      from_guest_def({from_guest_ring.host_span.data(), BUFFER_SIZE, &(from_guest_ring_offsets.host_object)}),
+      from_guest_ring_offsets(
+        vm_instance->allocate_shared<ringbuffer::Offsets>()),
+      initializer({to_guest_ring.enclave_start_address,
+                   BUFFER_SIZE,
+                   to_guest_ring_offsets.enclave_start_address,
+                   from_guest_ring.enclave_start_address,
+                   BUFFER_SIZE,
+                   from_guest_ring_offsets.enclave_start_address}),
+      to_guest_def({to_guest_ring.host_span.data(),
+                    BUFFER_SIZE,
+                    &(to_guest_ring_offsets.host_object)}),
+      from_guest_def({from_guest_ring.host_span.data(),
+                      BUFFER_SIZE,
+                      &(from_guest_ring_offsets.host_object)}),
       circuit(to_guest_def, from_guest_def),
       base_factory(circuit)
     {

@@ -8,7 +8,8 @@
 
 /**
  * Minimal initializer struct from host to guest for using ringbuffers.
- * Uses addresses valid within the shared memory as seen by the guest instead of pointers.
+ * Uses addresses valid within the shared memory as seen by the guest instead of
+ * pointers.
  */
 struct RingbufferInitializer
 {

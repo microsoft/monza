@@ -1,9 +1,10 @@
 // Copyright Microsoft and Project Monza Contributors.
 // SPDX-License-Identifier: MIT
 
+#include "messages.h"
+
 #include <ds/messaging.h>
 #include <ringbuffer_guest.h>
-#include "messages.h"
 
 const std::string TEST_MESSAGE = "Hello world!";
 
@@ -11,7 +12,8 @@ bool success = false;
 
 int main()
 {
-  monza::host::RingbufferGuest guest(monza::host::EnclaveType::QEMU, "qemu-apps-example-guest.img", 1);
+  monza::host::RingbufferGuest guest(
+    monza::host::EnclaveType::QEMU, "qemu-apps-example-guest.img", 1);
   messaging::BufferProcessor bp("Host");
 
   // Set up handler for pong to be used while polling.
@@ -27,7 +29,7 @@ int main()
   // Write ping to guest.
   RINGBUFFER_WRITE_MESSAGE(example::ping, guest.writer(), TEST_MESSAGE);
   // Poll receive buffer until response received.
-  while(!success)
+  while (!success)
   {
     bp.read_all(guest.reader());
   }

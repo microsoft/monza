@@ -4,8 +4,9 @@
 #pragma once
 
 /**
- * This file uses the "enclave" terminology as it might be reused as a generic enclave management API.
-*/
+ * This file uses the "enclave" terminology as it might be reused as a generic
+ * enclave management API.
+ */
 
 #include <chrono>
 #include <filesystem>
@@ -52,52 +53,57 @@ namespace monza::host
   protected:
     size_t num_threads;
 
-    EnclavePlatform(size_t num_threads) :
-      num_threads(num_threads)
-    {}
+    EnclavePlatform(size_t num_threads) : num_threads(num_threads) {}
 
   private:
     /**
      * Underlying shared memory allocator implementation.
-     * Returns non-owning non-null pointer to uninitialized memory and the corresponding enclave address.
-     * Range will be unmapped on destruction of EnclavePlatform instance.
+     * Returns non-owning non-null pointer to uninitialized memory and the
+     * corresponding enclave address. Range will be unmapped on destruction of
+     * EnclavePlatform instance.
      */
-    virtual std::pair<void*, uintptr_t> allocate_shared_inner(size_t size, size_t alignment) = 0;
+    virtual std::pair<void*, uintptr_t>
+    allocate_shared_inner(size_t size, size_t alignment) = 0;
 
   public:
-    virtual ~EnclavePlatform()
-    {}
+    virtual ~EnclavePlatform() {}
 
     /**
      * Factory method to create an EnclavePlatform instance of a given type.
      */
-    static std::unique_ptr<EnclavePlatform> create(EnclaveType type, const std::string& path, size_t num_threads);
+    static std::unique_ptr<EnclavePlatform>
+    create(EnclaveType type, const std::string& path, size_t num_threads);
 
     /**
-     * Returns non-owning reference to typed shared memory constructed with arguments.
-     * Range will be unmapped on destruction of EnclavePlatform instance.
+     * Returns non-owning reference to typed shared memory constructed with
+     * arguments. Range will be unmapped on destruction of EnclavePlatform
+     * instance.
      */
     template<typename T, typename... Args>
     SharedMemoryObject<T> allocate_shared(Args&&... args)
     {
       auto allocation_tuple = allocate_shared_inner(sizeof(T), alignof(T));
-      auto& host_ref = *(new (allocation_tuple.first)T(args...));
+      auto& host_ref = *(new (allocation_tuple.first) T(args...));
       return SharedMemoryObject<T>{host_ref, allocation_tuple.second};
     }
 
     /**
-     * Returns non-owning span to typed shared memory array constructed with arguments.
-     * Range will be unmapped on destruction of EnclavePlatform instance.
+     * Returns non-owning span to typed shared memory array constructed with
+     * arguments. Range will be unmapped on destruction of EnclavePlatform
+     * instance.
      */
     template<typename T, typename... Args>
     SharedMemoryArray<T> allocate_shared_array(size_t count, Args&&... args)
     {
-      auto allocation_tuple = allocate_shared_inner(count * sizeof(T), alignof(T));
+      auto allocation_tuple =
+        allocate_shared_inner(count * sizeof(T), alignof(T));
       for (size_t i = 0; i < count; ++i)
       {
-        new (&((static_cast<T*>(allocation_tuple.first))[i]))T(args...);
+        new (&((static_cast<T*>(allocation_tuple.first))[i])) T(args...);
       }
-      return SharedMemoryArray<T>{std::span<T>(static_cast<T*>(allocation_tuple.first), count), allocation_tuple.second};
+      return SharedMemoryArray<T>{
+        std::span<T>(static_cast<T*>(allocation_tuple.first), count),
+        allocation_tuple.second};
     }
 
     virtual void initialize(InitializerTuple initArgs) = 0;
@@ -128,8 +134,9 @@ namespace monza::host
     bool joined = false;
 
   protected:
-    QemuEnclavePlatform(EnclaveType type, const std::string& path, size_t num_threads) :
-      EnclavePlatform<InitializerTuple>(num_threads),
+    QemuEnclavePlatform(
+      EnclaveType type, const std::string& path, size_t num_threads)
+    : EnclavePlatform<InitializerTuple>(num_threads),
       instance_id(id_distribution(id_generator))
     {
       std::stringstream shmem_file_stream;
@@ -152,29 +159,30 @@ namespace monza::host
       cores_argument_builder << "cores=" << num_threads;
       auto cores_argument = cores_argument_builder.str();
       std::stringstream shmem_file_argument_builder;
-      shmem_file_argument_builder << "memory-backend-file,id=shmem,share=on,size=" << QEMU_SHMEM_SIZE << ",mem-path=/dev/shm/" << shmem_file;
+      shmem_file_argument_builder
+        << "memory-backend-file,id=shmem,share=on,size=" << QEMU_SHMEM_SIZE
+        << ",mem-path=/dev/shm/" << shmem_file;
       auto shmem_file_argument = shmem_file_argument_builder.str();
       std::stringstream shmem_device_argument_builder;
-      shmem_device_argument_builder << "pc-dimm,memdev=shmem,addr=" << QEMU_SHMEM_START;
+      shmem_device_argument_builder << "pc-dimm,memdev=shmem,addr="
+                                    << QEMU_SHMEM_START;
       auto shmem_device_argument = shmem_device_argument_builder.str();
       std::stringstream monitor_file_argument_builder;
-      monitor_file_argument_builder << "unix:" << monitor_file << ",server,nowait";
+      monitor_file_argument_builder << "unix:" << monitor_file
+                                    << ",server,nowait";
       auto monitor_file_argument = monitor_file_argument_builder.str();
-      const char* args[] =
-      {
-        binary,
-        "-enable-kvm", "-cpu", "host,+invtsc",
-        "-no-reboot", "-nographic",
-        "-smp", cores_argument.c_str(),
-        "-m", "1G,slots=2,maxmem=1T",
-        "-object", shmem_file_argument.c_str(),
-        "-device", shmem_device_argument.c_str(),
-        "-monitor", monitor_file_argument.c_str(),
-        "-S",
-        "-kernel", path.c_str(),
-        nullptr
-      };
-      posix_spawn(&qemu_pid, binary, nullptr, nullptr, const_cast<char**>(args), nullptr);
+      const char* args[] = {binary,       "-enable-kvm",
+                            "-cpu",       "host,+invtsc",
+                            "-no-reboot", "-nographic",
+                            "-smp",       cores_argument.c_str(),
+                            "-m",         "1G,slots=2,maxmem=1T",
+                            "-object",    shmem_file_argument.c_str(),
+                            "-device",    shmem_device_argument.c_str(),
+                            "-monitor",   monitor_file_argument.c_str(),
+                            "-S",         "-kernel",
+                            path.c_str(), nullptr};
+      posix_spawn(
+        &qemu_pid, binary, nullptr, nullptr, const_cast<char**>(args), nullptr);
 
       // Wait for QEMU to create the shmem and monitor files.
       while (!std::filesystem::exists(monitor_file))
@@ -187,13 +195,21 @@ namespace monza::host
       if (shmem_file_id == -1)
       {
         cleanup();
-        throw std::runtime_error("Failed to map enclave shared memory to host.");
+        throw std::runtime_error(
+          "Failed to map enclave shared memory to host.");
       }
-      shmem_base = static_cast<uint8_t*>(mmap(0, QEMU_SHMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmem_file_id, 0));
+      shmem_base = static_cast<uint8_t*>(mmap(
+        0,
+        QEMU_SHMEM_SIZE,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        shmem_file_id,
+        0));
       if (shmem_base == MAP_FAILED)
       {
         cleanup();
-        throw std::runtime_error("Failed to map enclave shared memory to host.");
+        throw std::runtime_error(
+          "Failed to map enclave shared memory to host.");
       }
       shmem_offset = 0;
 
@@ -205,7 +221,8 @@ namespace monza::host
       else
       {
         cleanup();
-        throw std::runtime_error("No enough enclave shared memoy for initialization arguments.");
+        throw std::runtime_error(
+          "No enough enclave shared memoy for initialization arguments.");
       }
     }
 
@@ -246,7 +263,8 @@ namespace monza::host
     void async_run() override
     {
       std::stringstream socat_command_builder;
-      socat_command_builder << "echo \"cont\" | socat - unix-connect:" << monitor_file;
+      socat_command_builder << "echo \"cont\" | socat - unix-connect:"
+                            << monitor_file;
       auto socat_command = socat_command_builder.str();
       std::system(socat_command.c_str());
     }
@@ -262,21 +280,27 @@ namespace monza::host
     }
 
   protected:
-    std::pair<void*, uintptr_t> allocate_shared_inner(size_t size, size_t alignment) override
+    std::pair<void*, uintptr_t>
+    allocate_shared_inner(size_t size, size_t alignment) override
     {
-      auto aligned_shmem_offset = ((shmem_offset + alignment - 1) / alignment) * alignment;
-      if (aligned_shmem_offset >= shmem_offset &&
+      auto aligned_shmem_offset =
+        ((shmem_offset + alignment - 1) / alignment) * alignment;
+      if (
+        aligned_shmem_offset >= shmem_offset &&
         aligned_shmem_offset + size > aligned_shmem_offset &&
         aligned_shmem_offset + size < QEMU_SHMEM_SIZE)
       {
         memset(shmem_base + aligned_shmem_offset, 0, size);
-        auto result = std::make_pair(shmem_base + aligned_shmem_offset, QEMU_SHMEM_START + aligned_shmem_offset);
+        auto result = std::make_pair(
+          shmem_base + aligned_shmem_offset,
+          QEMU_SHMEM_START + aligned_shmem_offset);
         shmem_offset = aligned_shmem_offset + size;
         return result;
       }
       else
       {
-        throw std::runtime_error("No enough enclave shared memory for allocation.");
+        throw std::runtime_error(
+          "No enough enclave shared memory for allocation.");
       }
     }
 
@@ -286,18 +310,19 @@ namespace monza::host
 #endif
 
   template<typename T>
-  std::unique_ptr<EnclavePlatform<T>> EnclavePlatform<T>::create(EnclaveType type, const std::string& path, size_t num_threads)
+  std::unique_ptr<EnclavePlatform<T>> EnclavePlatform<T>::create(
+    EnclaveType type, const std::string& path, size_t num_threads)
   {
     if (!std::filesystem::exists(path))
     {
-      throw std::logic_error(
-        fmt::format("No enclave file found at {}", path));
+      throw std::logic_error(fmt::format("No enclave file found at {}", path));
     }
     switch (type)
     {
       case EnclaveType::QEMU:
 #ifdef MONZA_HOST_SUPPORTS_QEMU
-        return std::unique_ptr<EnclavePlatform<T>>(new QemuEnclavePlatform<T>(type, path, num_threads));
+        return std::unique_ptr<EnclavePlatform<T>>(
+          new QemuEnclavePlatform<T>(type, path, num_threads));
 #else
         throw std::logic_error(
           "QEMU Monza enclaves are not supported in current build");
