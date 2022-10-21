@@ -43,7 +43,7 @@ jobs:
 
   - script: echo $AZURE_DEVOPS_CLI_PAT | az devops login
     env:
-      AZURE_DEVOPS_CLI_PAT: $(System.AccessToken)
+      AZURE_DEVOPS_CLI_PAT: $(ArtifactsAccess)
     displayName: 'Login Azure DevOps Extension'
 
   - script: ./apply-guest-patches.sh
