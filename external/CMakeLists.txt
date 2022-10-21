@@ -21,6 +21,22 @@ if (MONZA_DOWNLOAD_LLVM)
   )
   string(STRIP ${LLVM_PACKAGE_GIT_VERSION} LLVM_PACKAGE_GIT_VERSION)
   message (STATUS "Detected GIT commit: ${LLVM_PACKAGE_GIT_VERSION}")
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E md5sum llvm-libcxx.patch
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/patches"
+    OUTPUT_VARIABLE LLVM_LIBCXX_HASH_OUTPUT
+  )
+  string(FIND ${LLVM_LIBCXX_HASH_OUTPUT} " " HASH_SPACE_POS)
+  string(SUBSTRING ${LLVM_LIBCXX_HASH_OUTPUT} 0 ${HASH_SPACE_POS} LLVM_LIBCXX_HASH)
+  message (STATUS "Detected libcxx patch: ${LLVM_LIBCXX_HASH}")
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E md5sum llvm-clang.patch
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/patches"
+    OUTPUT_VARIABLE LLVM_CLANG_HASH_OUTPUT
+  )
+  string(FIND ${LLVM_CLANG_HASH_OUTPUT} " " HASH_SPACE_POS)
+  string(SUBSTRING ${LLVM_CLANG_HASH_OUTPUT} 0 ${HASH_SPACE_POS} LLVM_CLANG_HASH)
+  message (STATUS "Detected clang patch: ${LLVM_CLANG_HASH}")
 
   string(TOLOWER ${CMAKE_SYSTEM_NAME} PLATFORM)
   # Need loop to download all types for possible configurations
@@ -38,33 +54,28 @@ if (MONZA_DOWNLOAD_LLVM)
 
 
   # Setup LLVM download (+MD5 string)
-  execute_process(
-    COMMAND az artifacts universal download --organization https://dev.azure.com/msr-gryffindor --scope project --project Monza --feed LLVMBuild --name monza-llvm --version ${MONZA_DOWNLOAD_LLVM} --path .
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    ERROR_VARIABLE AZ_ARTIFACTS_ERROR
-  )
   if (NOT ${AZ_ARTIFACTS_ERROR} STREQUAL "")
     message(FATAL_ERROR ${AZ_ARTIFACTS_ERROR})
   endif()
-  set(LLVM_URL ${CMAKE_BINARY_DIR})
-  set(PKG_NAME monza-llvm-install-x86_64-${PLATFORM}-${LLVM_BUILD_TYPE})
-  set(MD5_NAME ${PKG_NAME}.tar.gz.md5)
-  # file(DOWNLOAD "${LLVM_URL}/${MD5_NAME}" ${CMAKE_BINARY_DIR}/${MD5_NAME} STATUS MD5_DOWNLOAD_STATUS)
-  # list(GET MD5_DOWNLOAD_STATUS 0 MD5_DOWNLOAD_STATUS_CODE)
-  # if (NOT (${MD5_DOWNLOAD_STATUS_CODE} EQUAL 0))
-  #   list(GET MD5_DOWNLOAD_STATUS 1 ERROR_MESSAGE)
-  #  message(FATAL_ERROR "Failed to download md5 hash: ${ERROR_MESSAGE}")
-  # endif ()
+  set(LLVM_URL https://verona.blob.core.windows.net/llvmbuild)
+  set(PKG_NAME monza-llvm-install-x86_64-${PLATFORM}-${LLVM_BUILD_TYPE}-${LLVM_PACKAGE_GIT_VERSION}-${LLVM_LIBCXX_HASH}-${LLVM_CLANG_HASH}.tar.gz)
+  set(MD5_NAME ${PKG_NAME}.md5)
+  file(DOWNLOAD "${LLVM_URL}/${MD5_NAME}" ${CMAKE_BINARY_DIR}/${MD5_NAME} STATUS MD5_DOWNLOAD_STATUS)
+  list(GET MD5_DOWNLOAD_STATUS 0 MD5_DOWNLOAD_STATUS_CODE)
+  if (NOT (${MD5_DOWNLOAD_STATUS_CODE} EQUAL 0))
+    list(GET MD5_DOWNLOAD_STATUS 1 ERROR_MESSAGE)
+    message(FATAL_ERROR "Failed to download md5 hash: ${ERROR_MESSAGE}")
+  endif ()
   file(STRINGS ${CMAKE_BINARY_DIR}/${MD5_NAME} LLVM_MD5_SUM REGEX [0-9a-f]+)
   string(STRIP ${LLVM_MD5_SUM} LLVM_MD5_SUM)
 
   ExternalProject_Add(llvm
-    URL ${LLVM_URL}/${PKG_NAME}.tar.gz
+    URL ${LLVM_URL}/${PKG_NAME}
     URL_MD5 ${LLVM_MD5_SUM}
     DOWNLOAD_NO_PROGRESS NOT ${VERBOSE_LLVM_DOWNLOAD}
     CONFIGURE_COMMAND ""
     PREFIX llvm-${LLVM_BUILD_TYPE}
-    SOURCE_DIR ${LLVM_INSTALL}
+    SOURCE_DIR ${LLVM_INSTALL}/install
     BUILD_COMMAND ""
     INSTALL_COMMAND ""
     TEST_COMMAND ""
