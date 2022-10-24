@@ -41,11 +41,6 @@ jobs:
       sudo snap install cmake --classic
     displayName: 'Dependencies'
 
-  - script: echo $AZURE_DEVOPS_CLI_PAT | az devops login --organization https://dev.azure.com/msr-gryffindor
-    env:
-      AZURE_DEVOPS_CLI_PAT: $(System.AccessToken)
-    displayName: 'Login Azure DevOps Extension'
-
   - script: ./apply-guest-patches.sh
     displayName: Patch externals
     workingDirectory: external
