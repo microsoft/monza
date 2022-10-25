@@ -1,5 +1,7 @@
 trigger: none
 
+pr: none
+
 jobs:
 ############################################## Linux Builds
 - job:
@@ -31,8 +33,8 @@ jobs:
       curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
     displayName: 'Install Build Dependencies'
   - script: |
-      git apply ../patches/llvm-clang.patch
       git apply ../patches/llvm-libcxx.patch
+      git apply ../patches/llvm-clang.patch
     displayName: Patch LLVM
     workingDirectory: external/llvm-project
   - task: CMake@1
@@ -47,15 +49,15 @@ jobs:
     displayName: 'Compile LLVM & MLIR'
   - script: |
       set -eo pipefail
-      rm -f $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz
-      tar zcf $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz build/install
-      md5sum $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz | awk '{print $1}' > $(Build.ArtifactStagingDirectory)/$(PKG_NAME).tar.gz.md5
-    displayName: 'Create package'
-  - task: UniversalPackages@0
-    displayName: Universal Publish
-    inputs:
-      command: publish
-      publishDirectory: '$(Build.ArtifactStagingDirectory)'
-      vstsFeedPublish: 'Monza/LLVMBuild'
-      vstsFeedPackagePublish: 'monza-llvm'
-      packagePublishDescription: 'Full LLVM build for Monza'
+      cd ../external/llvm-project
+      ACTUAL_HASH="`git rev-parse HEAD`-`md5sum ../patches/llvm-libcxx.patch | awk '{print $1}'`-`md5sum ../patches/llvm-clang.patch | awk '{print $1}'`"
+      FINAL_PACKAGE_NAME="$(PKG_NAME)-$ACTUAL_HASH.tar.gz"
+      echo "Package name is: $FINAL_PACKAGE_NAME"
+      cd ../../build
+      rm -f $FINAL_PACKAGE_NAME
+      tar zcf $FINAL_PACKAGE_NAME install
+      md5sum $FINAL_PACKAGE_NAME | awk '{print $1}' > $FINAL_PACKAGE_NAME.md5
+      az storage blob upload --overwrite --container-name llvmbuild --file $FINAL_PACKAGE_NAME --name $FINAL_PACKAGE_NAME --account-name verona --sas-token "$(BLOB_SAS_TOKEN)"
+      az storage blob upload --overwrite --container-name llvmbuild --file $FINAL_PACKAGE_NAME.md5 --name $FINAL_PACKAGE_NAME.md5 --account-name verona --sas-token "$(BLOB_SAS_TOKEN)"
+    displayName: 'Create and upload package'
+    workingDirectory: build
