@@ -1,0 +1,8 @@
+// Copyright Microsoft and Project Monza Contributors.
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+/**
+ * fmtlib (used by CCF) requires to include <fstream>, but it is fine if it is empty.
+ */

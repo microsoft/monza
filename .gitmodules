@@ -33,3 +33,7 @@
 	url = https://github.com/openssl/openssl.git
 	shallow = true
 	fetchRecurseSubmodules = false
+[submodule "external/CCF"]
+	path = external/CCF
+	url = https://github.com/microsoft/CCF
+	fetchRecurseSubmodules = true

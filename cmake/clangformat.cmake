@@ -20,7 +20,7 @@ macro(clangformat_targets)
     find_package(Git)
     execute_process(
       COMMAND ${GIT_EXECUTABLE} ls-files *.cc *.h
-      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/guest-verona-rt"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
       OUTPUT_VARIABLE ALL_SOURCE_FILES_STRING
     )
 
@@ -28,7 +28,7 @@ macro(clangformat_targets)
 
     add_custom_target(
       clangformat
-      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/guest-verona-rt"
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
       COMMAND ${CLANG_FORMAT}
       -i
       ${ALL_SOURCE_FILES})
