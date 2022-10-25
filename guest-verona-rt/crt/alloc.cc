@@ -7,6 +7,10 @@
 
 #include <snmalloc/override/new.cc>
 
+// Comment to keep ordering after clangformat.
+
+#include <snmalloc/override/malloc-extensions.cc>
+
 namespace monza
 {
   void* get_base_pointer(void* ptr)

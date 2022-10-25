@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <limits>
+#include <snmalloc.h>
 
 namespace ccf::pal
 {
@@ -26,9 +27,12 @@ namespace ccf::pal
 
   static inline bool get_mallinfo(MallocInfo& info)
   {
-    info.max_total_heap_size = std::numeric_limits<size_t>::max();
-    info.current_allocated_heap_size = 0;
-    info.peak_allocated_heap_size = 0;
+    snmalloc::MonzaGlobals snmalloc_globals_handle;
+    malloc_info_v1 snmalloc_stats;
+    get_malloc_info_v1(&snmalloc_stats);
+    info.max_total_heap_size = snmalloc_globals_handle.heap_size();
+    info.current_allocated_heap_size = snmalloc_stats.current_memory_usage;
+    info.peak_allocated_heap_size = snmalloc_stats.peak_memory_usage;
     return true;
   }
 

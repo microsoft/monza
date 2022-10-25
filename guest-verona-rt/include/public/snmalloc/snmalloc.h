@@ -6,6 +6,9 @@
 // snmalloc includes
 #include <snmalloc/snmalloc_incl.h>
 
+// snmalloc extensions
+#include <snmalloc/override/malloc-extensions.h>
+
 // Monza includes
 #include <logging.h>
 #include <pagetable.h>
@@ -692,6 +695,8 @@ namespace snmalloc
     };
 
   private:
+    __attribute__((monza_global)) inline static size_t total_heap_size = 0;
+
     // TODO: Unsure about this.
     inline thread_local static GlobalPoolState compartment_alloc_pool;
 
@@ -720,6 +725,8 @@ namespace snmalloc
     static void add_range(LocalState* local_state, void* base, size_t length)
     {
       UNUSED(local_state);
+
+      total_heap_size += length;
 
       // Push memory into the global range.
       range_to_pow_2_blocks<MIN_CHUNK_BITS>(
@@ -790,6 +797,11 @@ namespace snmalloc
 
       // Add the remainder of the initial range to the backend.
       add_range(local_state, base, initial_length);
+    }
+
+    static size_t heap_size()
+    {
+      return total_heap_size;
     }
   };
 
