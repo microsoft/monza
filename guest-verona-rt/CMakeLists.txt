@@ -90,7 +90,7 @@ target_compile_definitions(monza_compatibility INTERFACE VERONA_EXTERNAL_SEMAPHO
 if (MONZA_SYSTEMATIC_BUILD)
   target_compile_definitions(monza_compatibility INTERFACE USE_SYSTEMATIC_TESTING)
 endif()
-if(USE_SCHED_STATS)
+if (USE_SCHED_STATS)
   target_compile_definitions(monza_compatibility INTERFACE -DUSE_SCHED_STATS)
 endif()
 target_compile_definitions(monza_compatibility INTERFACE -DSNMALLOC_CHEAP_CHECKS)
@@ -323,36 +323,22 @@ macro(subdirlist result curdir)
   set(${result} ${dirlist})
 endmacro()
 
-add_custom_target(monza_tests ALL)
-set(test_artefacts "")
+if (GUEST_TEST_INSTALL)
+  add_custom_target(monza_tests ALL)
+  set(test_artefacts "")
 
-set(TESTDIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
-subdirlist(TEST_CATEGORIES ${TESTDIR})
-foreach(TEST_CATEGORY ${TEST_CATEGORIES})
-  subdirlist(TESTS ${TESTDIR}/${TEST_CATEGORY})
-  foreach(TEST ${TESTS})
-    create_test(monza_tests test_artefacts "${TEST_CATEGORY}-${TEST}" ${TESTDIR}/${TEST_CATEGORY}/${TEST} ${TEST_CATEGORY})
+  set(TESTDIR ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  subdirlist(TEST_CATEGORIES ${TESTDIR})
+  foreach(TEST_CATEGORY ${TEST_CATEGORIES})
+    subdirlist(TESTS ${TESTDIR}/${TEST_CATEGORY})
+    foreach(TEST ${TESTS})
+      create_test(monza_tests test_artefacts "${TEST_CATEGORY}-${TEST}" ${TESTDIR}/${TEST_CATEGORY}/${TEST} ${TEST_CATEGORY})
+    endforeach()
   endforeach()
-endforeach()
 
-add_custom_target(rt_tests)
+  add_custom_target(rt_tests)
 
-set(TESTDIR ${CMAKE_CURRENT_SOURCE_DIR}/../external/verona/src/rt/test)
-#subdirlist(TEST_CATEGORIES ${TESTDIR})
-set(TEST_CATEGORIES "func")
-foreach(TEST_CATEGORY ${TEST_CATEGORIES})
-  #subdirlist(TESTS ${TESTDIR}/${TEST_CATEGORY})
-  set(TESTS 
-      #"cownchain"
-      #"cowngc1"
-      #"hashmap"
-      #memory"
-    )
-  foreach(TEST ${TESTS})
-    create_test(rt_tests test_artefacts "${TEST_CATEGORY}-con-${TEST}" ${TESTDIR}/${TEST_CATEGORY}/${TEST})
-  endforeach()
-endforeach()
-
-install(FILES ${test_artefacts}
-  DESTINATION ${GUEST_TEST_INSTALL}
-)
+  install(FILES ${test_artefacts}
+    DESTINATION ${GUEST_TEST_INSTALL}
+  )
+endif()
