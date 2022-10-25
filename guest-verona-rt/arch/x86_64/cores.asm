@@ -33,7 +33,7 @@ acquire_semaphore:
     mov rcx, [rdi]
     test rcx, rcx
     jnz .end_suspend
-    ;hlt
+    hlt
     ; Marker for the interrupt handler to detect if hlt has been executed already.
     ; If this instruction pointer is reached, then we finished with the atomic block and can continue as normal.
     ; If not, then reset to .loop_suspend to ensure atomicity.
