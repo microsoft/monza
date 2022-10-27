@@ -29,5 +29,4 @@ namespace monza
     PagetablePermission perm);
   void remove_from_compartment_pagetable(
     void* root, snmalloc::address_t base, size_t size);
-  std::span<uint8_t> get_io_shared_range();
 }

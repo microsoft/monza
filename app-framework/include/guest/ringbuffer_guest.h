@@ -5,8 +5,8 @@
 
 #include <address.h>
 #include <ds/ring_buffer.h>
-#include <pagetable.h>
 #include <ringbuffer_initializer.h>
+#include <shared.h>
 #include <snmalloc.h>
 
 extern int app_main(

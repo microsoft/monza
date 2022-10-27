@@ -8,6 +8,7 @@
 #include <hypervisor.h>
 #include <logging.h>
 #include <pagetable_arch.h>
+#include <shared.h>
 #include <snmalloc.h>
 
 extern char __elf_start;
@@ -21,15 +22,6 @@ namespace monza
 {
   // Pagetable pages are always 4kB.
   constexpr size_t PT_PAGE_SIZE = 4 * 1024;
-
-  // For now limit the top of memory to 1TB due to QEMU limit.
-  static constexpr snmalloc::address_t TOP_OF_MEMORY = static_cast<uint64_t>(1)
-    << 40;
-  // 64MB of shared memory specifically for IO purposes at the top range of
-  // memory.
-  static constexpr size_t IO_SHARED_MEMORY_SIZE = 64 * 1024 * 1024;
-  static constexpr snmalloc::address_t IO_SHARED_MEMORY_START =
-    TOP_OF_MEMORY - IO_SHARED_MEMORY_SIZE;
 
   __attribute__((section(".data"))) static MapEntry predefined_map[3]{};
 
@@ -247,8 +239,11 @@ namespace monza
         snmalloc::address_cast(local_apic_mapping), PAGE_SIZE, PT_KERNEL_WRITE);
     }
 
+    auto shared_address_range = AddressRange(get_io_shared_range());
     add_to_kernel_pagetable(
-      IO_SHARED_MEMORY_START, IO_SHARED_MEMORY_SIZE, monza::PT_KERNEL_WRITE);
+      shared_address_range.start,
+      shared_address_range.size(),
+      monza::PT_KERNEL_WRITE);
 
     // The first heap range might not be PAGE_SIZE aligned at its start, but the
     // part before the first alignment is already mapped.
@@ -364,12 +359,5 @@ namespace monza
   {
     return get_pagetable_entry(
       static_cast<PagetableEntry*>(kernel_pagetable), PML4_LEVEL, base);
-  }
-
-  std::span<uint8_t> get_io_shared_range()
-  {
-    return std::span(
-      snmalloc::unsafe_from_uintptr<uint8_t>(IO_SHARED_MEMORY_START),
-      IO_SHARED_MEMORY_SIZE);
   }
 }

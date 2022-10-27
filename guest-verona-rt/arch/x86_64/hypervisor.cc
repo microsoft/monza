@@ -5,17 +5,30 @@
 #include <cstddef>
 #include <cstdint>
 #include <early_alloc.h>
+#include <hv.h>
 #include <hypervisor.h>
 #include <kvm.h>
 #include <msr.h>
 #include <novirt.h>
 #include <serial.h>
+#include <shared_arch.h>
 
 namespace monza
 {
   constexpr uint32_t CPUID_HYPERVISOR_ENABLED_LEAF = 1;
   constexpr uint32_t CPUID_HYPERVISOR_ENABLED_FLAG = 1 << 31;
   constexpr uint32_t CPUID_HYPERVISOR_MAXLEAF_LEAF = 0x40000000;
+
+  static void setup_hypervisor_stage2_generic()
+  {
+    // The default shared memory is placed just below the 1TB point.
+    // Largest address valid in QEMU.
+    constexpr uint64_t TOP_OF_MEMORY = static_cast<uint64_t>(1) << 40;
+    io_shared_range = std::span<uint8_t, IO_SHARED_MEMORY_SIZE>(
+      snmalloc::unsafe_from_uintptr<uint8_t>(
+        TOP_OF_MEMORY - IO_SHARED_MEMORY_SIZE),
+      IO_SHARED_MEMORY_SIZE);
+  }
 
   /**
    * Allocate a chunk of memory from shared memory with HV_PAGE_SIZE alignment.
@@ -56,7 +69,7 @@ namespace monza
   // Virtualized methods for boot setup
   void (*setup_heap)(void* kernel_zero_page) = &setup_heap_generic;
   void (*setup_cores)() = &setup_cores_generic;
-  void (*setup_hypervisor_stage2)() = []() { return; };
+  void (*setup_hypervisor_stage2)() = &setup_hypervisor_stage2_generic;
   void (*setup_idt)() = &setup_idt_generic;
   void (*setup_pagetable)() = &setup_pagetable_generic;
   // Virtualized methods for fundamental functionality
@@ -104,7 +117,14 @@ namespace monza
       hypervisor_signature[2]);
     hypervisor_signature[3] = 0;
 
-    if (verify_signature(hypervisor_signature, KVM_SIGNATURE))
+    if (
+      verify_signature(hypervisor_signature, HV_SIGNATURE) &&
+      (hypervisor_maxleaf >= HV_CPUID_MIN_MAXLEAF))
+    {
+      init_hyperv(hypervisor_maxleaf);
+      return;
+    }
+    else if (verify_signature(hypervisor_signature, KVM_SIGNATURE))
     {
       init_kvm(hypervisor_maxleaf);
       return;
