@@ -189,7 +189,7 @@ public:
 };
 
 /**
- * Create a memory section in the global space with full access to "everyone".
+ * Create a memory section with full access to "everyone".
  * Uses Win32 naming scheme as it is helper for Win32.
  */
 static HANDLE CreateSection(std::wstring name, size_t size)
