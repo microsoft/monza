@@ -341,7 +341,6 @@ namespace monza::host
       }
       else
       {
-        cleanup();
         throw std::runtime_error(
           "No enough enclave shared memoy for initialization arguments.");
       }
@@ -356,10 +355,6 @@ namespace monza::host
       {
         join();
       }
-
-      free(shmem_base);
-
-      cleanup();
     }
 
   public:
