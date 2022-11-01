@@ -2,6 +2,7 @@
 ; SPDX-License-Identifier: MIT
 
 global start
+global triple_fault
 
 extern __early_stack_start
 extern __early_stack_end
@@ -91,3 +92,15 @@ start:
     call startcc
 
     jmp [shutdown]
+
+; Trigger triple fault
+triple_fault:
+    lidt [fake_idtr]
+    int 0
+    ; Should never reach this point
+    ret
+
+align 16
+fake_idtr:                      ; Fake Interrupt Descriptor Table Register
+                dw 1            ; Size (minus one), size of 0 makes it unusable
+                dq 0            ; Base address

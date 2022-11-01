@@ -391,7 +391,8 @@ namespace monza::host
           if (pipe.get() == INVALID_HANDLE_VALUE)
           {
             throw std::runtime_error(std::format(
-              "Opening named pipe failed. {}", GetErrorMessage(GetLastError())));
+              "Opening named pipe failed. {}",
+              GetErrorMessage(GetLastError())));
           }
           while (!finished.load())
           {
