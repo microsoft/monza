@@ -280,7 +280,7 @@ namespace monza::host
           "SectionName": "{}",
           "StartOffset": 0,
           "Length": {},
-          "AllowGuestWrite": false
+          "AllowGuestWrite": true
         }}]
       }}
     }}
@@ -376,39 +376,47 @@ namespace monza::host
       // Create a listener thread for the named pipe used for debug output.
       pipe_listener.reset(new std::thread([pipe_name = std::move(pipe_name),
                                            &finished = finished]() {
-        RaiiHandle<HANDLE> pipe(
-          CreateFileW(
-            pipe_name.c_str(),
-            GENERIC_READ,
-            0,
-            NULL,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            NULL),
-          CloseHandle);
-        if (pipe.get() == INVALID_HANDLE_VALUE)
+        try
         {
-          throw std::runtime_error(std::format(
-            "Opening named pipe failed. {}", GetErrorMessage(GetLastError())));
+          RaiiHandle<HANDLE> pipe(
+            CreateFileW(
+              pipe_name.c_str(),
+              GENERIC_READ,
+              0,
+              NULL,
+              OPEN_EXISTING,
+              FILE_ATTRIBUTE_NORMAL,
+              NULL),
+            CloseHandle);
+          if (pipe.get() == INVALID_HANDLE_VALUE)
+          {
+            throw std::runtime_error(std::format(
+              "Opening named pipe failed. {}", GetErrorMessage(GetLastError())));
+          }
+          while (!finished.load())
+          {
+            char buffer[1024];
+            DWORD bytes_read = 0;
+            // Read up to size - 1 bytes to allow space for NUL terminator.
+            if (!ReadFile(
+                  pipe.get(), buffer, std::size(buffer) - 1, &bytes_read, NULL))
+            {
+              break;
+            }
+            if (bytes_read > 0)
+            {
+              buffer[bytes_read] = '\0';
+              std::cout << buffer;
+            }
+          }
+          std::cout << std::endl;
+          std::cout << "Finished reading named pipe." << std::endl;
         }
-        while (!finished.load())
+        catch (const std::exception& e)
         {
-          char buffer[1024];
-          DWORD bytes_read = 0;
-          // Read up to size - 1 bytes to allow space for NUL terminator.
-          if (!ReadFile(
-                pipe.get(), buffer, std::size(buffer) - 1, &bytes_read, NULL))
-          {
-            break;
-          }
-          if (bytes_read > 0)
-          {
-            buffer[bytes_read] = '\0';
-            std::cout << buffer;
-          }
+          std::cerr << e.what() << std::endl;
+          exit(-1);
         }
-        std::cout << std::endl;
-        std::cout << "Finished reading named pipe." << std::endl;
       }));
     }
 

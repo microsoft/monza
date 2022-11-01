@@ -16,17 +16,19 @@ int main(int argc, char** argv)
   {
     std::cout << "Usage: apps-example-host TYPE PATH_TO_GUEST_IMAGE."
               << std::endl;
+    exit(-1);
   }
   auto enclave_type = monza::host::EnclaveType::QEMU;
   if (std::string(argv[1]) == "HCS")
   {
     enclave_type = monza::host::EnclaveType::HCS;
   }
+  auto guest_path = std::string(argv[2]);
 
   try
   {
-    monza::host::RingbufferGuest guest(enclave_type, argv[2], 1);
-    std::cout << "Create guest instance using path " << argv[2] << std::endl;
+    monza::host::RingbufferGuest guest(enclave_type, guest_path, 1);
+    std::cout << "Create guest instance using path " << guest_path << std::endl;
     messaging::BufferProcessor bp("Host");
 
     // Set up handler for pong to be used while polling.
