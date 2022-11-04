@@ -7,9 +7,15 @@
 
 using namespace monza;
 
-#define N_ITERATIONS \
-  (10000) // A define rather than constexpr because it is used in the unroll
-          // pragma
+/**
+ * A define rather than constexpr because it is used in the unroll pragma.
+ * Reduced iteration count on Debug builds only used on CI.
+ */
+#ifdef NDEBUG
+#  define N_ITERATIONS (10000)
+#else
+#  define N_ITERATIONS (1000)
+#endif
 constexpr size_t COMPARTMENT_ARRAY_SIZE = 20;
 constexpr size_t ITERATION_COUNT = N_ITERATIONS;
 
@@ -118,7 +124,7 @@ void bench_compartments()
             << create_compartments << " cycles" << std::endl;
   std::cout << "Mean cost of compartment_invoke was "
             << compartment_invoke_overhead << " cycles" << std::endl;
-  std::cout << "Mean cost of compartment creation and teardownwas "
+  std::cout << "Mean cost of compartment creation and teardown was "
             << compartment_create_overhead << " cycles" << std::endl;
 
   std::cout << "SUCCESS: bench_compartments" << std::endl;
