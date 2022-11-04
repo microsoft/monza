@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include <cstdint>
-#include <pagetable.h>
+#include <shared.h>
 #include <snmalloc.h>
 #include <test.h>
 

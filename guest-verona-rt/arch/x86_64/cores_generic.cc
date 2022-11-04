@@ -12,6 +12,8 @@
 #include <snmalloc.h>
 #include <tls.h>
 
+extern "C" void triple_fault();
+
 // Globals accessed from assembly so avoid namespacing
 extern uint8_t* local_apic_mapping;
 uint8_t* local_apic_mapping = nullptr;
@@ -334,6 +336,7 @@ namespace monza
 
   /**
    * VMM-specific shutdown codes.
+   * Fallback to triple fault if the codes don't work.
    * Proper power-down requires complex code to manage ACPI in this file.
    */
   void shutdown_generic()
@@ -342,7 +345,7 @@ namespace monza
     out<uint8_t>(0xFE, 0x64);
     while (true)
     {
-      asm volatile("hlt");
+      triple_fault();
     }
   }
 }

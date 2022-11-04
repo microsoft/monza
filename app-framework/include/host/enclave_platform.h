@@ -26,6 +26,10 @@
 #  include <unistd.h>
 #endif
 
+#ifdef MONZA_HOST_SUPPORTS_HCS
+#  include <hcs_enclave.h>
+#endif
+
 namespace monza::host
 {
   template<typename T>
@@ -44,7 +48,8 @@ namespace monza::host
 
   enum class EnclaveType
   {
-    QEMU
+    QEMU,
+    HCS
   };
 
   template<typename InitializerTuple>
@@ -116,8 +121,8 @@ namespace monza::host
   template<typename InitializerTuple>
   class QemuEnclavePlatform : public EnclavePlatform<InitializerTuple>
   {
-    static constexpr size_t QEMU_SHMEM_SIZE = 64 * 1024 * 1024;
-    static constexpr size_t QEMU_SHMEM_START = (1UL << 40) - QEMU_SHMEM_SIZE;
+    static constexpr size_t SHMEM_SIZE = 64 * 1024 * 1024;
+    static constexpr size_t SHMEM_START = (1ULL << 40) - SHMEM_SIZE;
 
     static inline std::default_random_engine id_generator;
     static inline std::uniform_int_distribution<uint64_t> id_distribution;
@@ -160,12 +165,12 @@ namespace monza::host
       auto cores_argument = cores_argument_builder.str();
       std::stringstream shmem_file_argument_builder;
       shmem_file_argument_builder
-        << "memory-backend-file,id=shmem,share=on,size=" << QEMU_SHMEM_SIZE
+        << "memory-backend-file,id=shmem,share=on,size=" << SHMEM_SIZE
         << ",mem-path=/dev/shm/" << shmem_file;
       auto shmem_file_argument = shmem_file_argument_builder.str();
       std::stringstream shmem_device_argument_builder;
       shmem_device_argument_builder << "pc-dimm,memdev=shmem,addr="
-                                    << QEMU_SHMEM_START;
+                                    << SHMEM_START;
       auto shmem_device_argument = shmem_device_argument_builder.str();
       std::stringstream monitor_file_argument_builder;
       monitor_file_argument_builder << "unix:" << monitor_file
@@ -199,12 +204,7 @@ namespace monza::host
           "Failed to map enclave shared memory to host.");
       }
       shmem_base = static_cast<uint8_t*>(mmap(
-        0,
-        QEMU_SHMEM_SIZE,
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED,
-        shmem_file_id,
-        0));
+        0, SHMEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmem_file_id, 0));
       if (shmem_base == MAP_FAILED)
       {
         cleanup();
@@ -214,7 +214,7 @@ namespace monza::host
       shmem_offset = 0;
 
       // Reserve space for InitializerTuple.
-      if (QEMU_SHMEM_SIZE > sizeof(InitializerTuple))
+      if (SHMEM_SIZE > sizeof(InitializerTuple))
       {
         shmem_offset += sizeof(InitializerTuple);
       }
@@ -249,7 +249,7 @@ namespace monza::host
         join();
       }
 
-      munmap(shmem_base, QEMU_SHMEM_SIZE);
+      munmap(shmem_base, SHMEM_SIZE);
 
       cleanup();
     }
@@ -288,12 +288,110 @@ namespace monza::host
       if (
         aligned_shmem_offset >= shmem_offset &&
         aligned_shmem_offset + size > aligned_shmem_offset &&
-        aligned_shmem_offset + size < QEMU_SHMEM_SIZE)
+        aligned_shmem_offset + size < SHMEM_SIZE)
       {
         memset(shmem_base + aligned_shmem_offset, 0, size);
         auto result = std::make_pair(
           shmem_base + aligned_shmem_offset,
-          QEMU_SHMEM_START + aligned_shmem_offset);
+          SHMEM_START + aligned_shmem_offset);
+        shmem_offset = aligned_shmem_offset + size;
+        return result;
+      }
+      else
+      {
+        throw std::runtime_error(
+          "Not enough enclave shared memory for allocation.");
+      }
+    }
+
+    friend class EnclavePlatform<InitializerTuple>;
+  };
+
+#endif
+
+#ifdef MONZA_HOST_SUPPORTS_HCS
+
+  template<typename InitializerTuple>
+  class HcsEnclavePlatform : public EnclavePlatform<InitializerTuple>
+  {
+    static constexpr size_t SHMEM_SIZE = 64 * 1024 * 1024;
+
+    std::unique_ptr<HCSEnclaveAbstract> instance;
+
+    size_t shmem_guest_base;
+    uint8_t* shmem_base;
+    size_t shmem_offset;
+
+    bool joined;
+
+  protected:
+    HcsEnclavePlatform(
+      EnclaveType type, const std::string& path, size_t num_threads)
+    : EnclavePlatform<InitializerTuple>(num_threads),
+      instance(HCSEnclaveAbstract::create(path, num_threads, SHMEM_SIZE)),
+      shmem_guest_base(instance->shared_memory_guest_base()),
+      shmem_base(instance->shared_memory().data()),
+      shmem_offset(0),
+      joined(false)
+    {
+      // Reserve space for InitializerTuple.
+      if (SHMEM_SIZE > sizeof(InitializerTuple))
+      {
+        shmem_offset += sizeof(InitializerTuple);
+      }
+      else
+      {
+        throw std::runtime_error(
+          "No enough enclave shared memory for initialization arguments.");
+      }
+    }
+
+    void cleanup() {}
+
+  public:
+    ~HcsEnclavePlatform() override
+    {
+      if (!joined)
+      {
+        join();
+      }
+    }
+
+  public:
+    void initialize(InitializerTuple initArgs) override
+    {
+      *reinterpret_cast<InitializerTuple*>(shmem_base) = initArgs;
+    }
+
+    void async_run() override
+    {
+      instance->async_run();
+    }
+
+    void join() override
+    {
+      if (!joined)
+      {
+        instance->join();
+      }
+      joined = true;
+    }
+
+  protected:
+    std::pair<void*, uintptr_t>
+    allocate_shared_inner(size_t size, size_t alignment) override
+    {
+      auto aligned_shmem_offset =
+        ((shmem_offset + alignment - 1) / alignment) * alignment;
+      if (
+        aligned_shmem_offset >= shmem_offset &&
+        aligned_shmem_offset + size > aligned_shmem_offset &&
+        aligned_shmem_offset + size < SHMEM_SIZE)
+      {
+        memset(shmem_base + aligned_shmem_offset, 0, size);
+        auto result = std::make_pair(
+          shmem_base + aligned_shmem_offset,
+          shmem_guest_base + aligned_shmem_offset);
         shmem_offset = aligned_shmem_offset + size;
         return result;
       }
@@ -327,6 +425,14 @@ namespace monza::host
         throw std::logic_error(
           "QEMU Monza enclaves are not supported in current build");
 #endif // MONZA_HOST_SUPPORTS_QEMU
+      case EnclaveType::HCS:
+#ifdef MONZA_HOST_SUPPORTS_HCS
+        return std::unique_ptr<EnclavePlatform<T>>(
+          new HcsEnclavePlatform<T>(type, path, num_threads));
+#else
+        throw std::logic_error(
+          "HCS Monza enclaves are not supported in current build");
+#endif // MONZA_HOST_SUPPORTS_HCS
     }
   }
 }
