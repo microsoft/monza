@@ -48,6 +48,12 @@ add_custom_command(OUTPUT compiler_updated.h
 # Interface libraries used to set up requirements for Monza compatibility
 add_library(monza_compatibility INTERFACE)
 
+if (MONZA_USE_LARGE_PAGES)
+  set(MONZA_PAGE_SIZE 2097152)
+else()
+  set(MONZA_PAGE_SIZE 4096)
+endif()
+
 # Compiler options
 target_compile_options(monza_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-Werror>)
 target_compile_options(monza_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-mcx16>)
@@ -61,6 +67,7 @@ target_compile_options(monza_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>
 target_compile_options(monza_compatibility INTERFACE $<$<COMPILE_LANGUAGE:C,CXX>:-target ${ARCH}-istvan-monza>)
 target_compile_definitions(monza_compatibility INTERFACE _ALL_SOURCE)
 target_compile_definitions(monza_compatibility INTERFACE LIBC_THREADED_GLOBALS)
+target_compile_definitions(monza_compatibility INTERFACE PAGESIZE=${MONZA_PAGE_SIZE})
 target_include_directories(monza_compatibility INTERFACE ../external/verona/src/rt)
 target_include_directories(monza_compatibility INTERFACE include/public)
 # COMPILER_HEADERS as compile options and not include_directories as CMake filters it out otherwise
@@ -220,8 +227,16 @@ add_subdirectory(arch/${ARCH} monza_rt_arch EXCLUDE_FROM_ALL)
 target_link_libraries(monza_app INTERFACE monza_rt_arch)
 
 # Set up linker script once architecture selected
-set_target_properties(monza_compatibility PROPERTIES INTERFACE_LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${LINKER_SCRIPT})
-target_link_options(monza_compatibility INTERFACE -Wl,-T${CMAKE_CURRENT_SOURCE_DIR}/${LINKER_SCRIPT})
+add_custom_target(monza_linker_script
+  DEPENDS linker.ld
+)
+add_custom_command(OUTPUT linker.ld
+  COMMAND
+    cpp -P -DPAGE_SIZE=${MONZA_PAGE_SIZE} ${CMAKE_CURRENT_SOURCE_DIR}/${LINKER_SCRIPT} -o ${CMAKE_CURRENT_BINARY_DIR}/linker.ld
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${LINKER_SCRIPT}
+)
+set_target_properties(monza_compatibility PROPERTIES INTERFACE_LINK_DEPENDS monza_linker_script)
+target_link_options(monza_compatibility INTERFACE -Wl,-T${CMAKE_CURRENT_BINARY_DIR}/linker.ld)
 
 # Architecture-independent part of Monza runtime
 unset(SRC)
