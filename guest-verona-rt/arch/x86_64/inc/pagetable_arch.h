@@ -32,7 +32,8 @@ namespace monza
     PML4_LEVEL = 3
   };
 
-  constexpr PagetableLevels PAGETABLE_LOWEST_LEVEL = PD_LEVEL;
+  constexpr PagetableLevels PAGETABLE_LOWEST_LEVEL =
+    (PAGE_SIZE == 4 * 1024) ? PT_LEVEL : PD_LEVEL;
 
   inline constexpr static PagetableLevels
   next_pagetable_level(PagetableLevels level)
