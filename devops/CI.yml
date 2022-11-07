@@ -71,7 +71,7 @@ jobs:
 
   - task: ComponentGovernanceComponentDetection@0
     inputs:
-      ignoreDirectories: 'external/llvm-project/mlir,external/llvm-project/lldb,external/llvm-project/utils,external/llvm-project/clang/utils,external/llvm-project/libcxx/utils,external/llvm-project/llvm/utils'
+      ignoreDirectories: 'external/llvm-project/mlir,external/llvm-project/lldb,external/llvm-project/utils,external/llvm-project/clang/utils,external/llvm-project/libcxx/utils,external/llvm-project/llvm/utils,external/CCF/doc,external/CCF/test'
       scanType: 'Register'
       verbosity: 'Verbose'
       alertWarningLevel: 'High'
