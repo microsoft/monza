@@ -35,7 +35,7 @@ sudo apt install cmake build-essential ninja-build \
                  nasm \
                  clang-format-9 \
                  qemu-system \
-                 python3
+                 python3 python3-ecdsa
 ```
 
 ## Apply patches to external repos

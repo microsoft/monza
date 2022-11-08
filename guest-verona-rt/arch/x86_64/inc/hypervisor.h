@@ -22,7 +22,6 @@ namespace monza
   extern void (*notify_using_memory)(std::span<uint8_t>);
 
   // Virtualized methods for MSR access
-  extern uint64_t (*read_msr_virt)(uint32_t msr);
   extern void (*write_msr_virt)(uint32_t msr, uint64_t value);
 
   // Virtualized methods for core management

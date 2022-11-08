@@ -51,6 +51,7 @@ jobs:
       sudo apt-get install qemu-system
       sudo apt-get remove --purge cmake
       sudo snap install cmake --classic
+      sudo apt-get install python3-ecdsa
     displayName: 'Dependencies'
 
   - script: ./apply-guest-patches.sh

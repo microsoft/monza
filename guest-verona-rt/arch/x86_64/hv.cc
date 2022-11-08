@@ -8,6 +8,7 @@
 #include <hv.h>
 #include <hypervisor.h>
 #include <logging.h>
+#include <msr.h>
 #include <per_core_data.h>
 #include <shared_arch.h>
 #include <snmalloc.h>
@@ -209,7 +210,7 @@ namespace monza
   {
     extern uint64_t tsc_freq;
 
-    tsc_freq = read_msr_virt(HV_X64_MSR_TSC_FREQ);
+    tsc_freq = read_msr(HV_X64_MSR_TSC_FREQ);
   }
 
   /**
@@ -353,18 +354,18 @@ namespace monza
   {
     LOG(INFO) << "HyperV detected. Initializing hypercalls." << LOG_ENDL;
     check_features();
-    write_msr_virt(
+    write_msr(
       HV_X64_MSR_GUEST_OS_ID,
       static_cast<uint64_t>(MONZA_ID) << 48 |
         static_cast<uint64_t>(KERNEL_VERSION) << 16 | BUILD_ID);
-    uint64_t hypercall_config = read_msr_virt(HV_X64_MSR_HYPERCALL);
+    uint64_t hypercall_config = read_msr(HV_X64_MSR_HYPERCALL);
     if ((hypercall_config & HV_X64_MSR_HYPERCALL_ENABLED_FLAG) == 0)
     {
       hv_call_target = &__hv_hypercall_codepage_start;
       hypercall_config |=
         (reinterpret_cast<uint64_t>(hv_call_target) / HV_PAGE_SIZE) << 12;
       hypercall_config |= HV_X64_MSR_HYPERCALL_ENABLED_FLAG;
-      write_msr_virt(HV_X64_MSR_HYPERCALL, hypercall_config);
+      write_msr(HV_X64_MSR_HYPERCALL, hypercall_config);
     }
     else
     {
