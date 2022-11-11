@@ -327,9 +327,13 @@ namespace monza::host
 
   protected:
     HcsEnclavePlatform(
-      EnclaveType type, const std::string& path, size_t num_threads, bool is_isolated)
+      EnclaveType type,
+      const std::string& path,
+      size_t num_threads,
+      bool is_isolated)
     : EnclavePlatform<InitializerTuple>(num_threads),
-      instance(HCSEnclaveAbstract::create(path, num_threads, SHMEM_SIZE, is_isolated)),
+      instance(
+        HCSEnclaveAbstract::create(path, num_threads, SHMEM_SIZE, is_isolated)),
       shmem_guest_base(instance->shared_memory_guest_base()),
       shmem_base(instance->shared_memory().data()),
       shmem_offset(0),

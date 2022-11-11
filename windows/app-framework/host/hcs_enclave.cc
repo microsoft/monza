@@ -111,9 +111,7 @@ class VmAccessGranter
   std::vector<std::wstring> paths;
 
 public:
-  VmAccessGranter(const std::wstring& id_string) :
-    id_string(id_string),
-    paths()
+  VmAccessGranter(const std::wstring& id_string) : id_string(id_string), paths()
   {}
 
   ~VmAccessGranter()
@@ -129,8 +127,8 @@ public:
     HRESULT result = HcsGrantVmAccess(id_string.c_str(), path.c_str());
     if (FAILED(result))
     {
-      throw std::runtime_error(std::format(
-        "HcsGrantVmAccess failed. {}", GetErrorMessage(result)));
+      throw std::runtime_error(
+        std::format("HcsGrantVmAccess failed. {}", GetErrorMessage(result)));
     }
     paths.push_back(path);
   }
@@ -471,7 +469,7 @@ namespace monza::host
           escape_file_path(hcs_section_name),
           shared_memory_size);
       }
-      if constexpr(DEBUG_HCS)
+      if constexpr (DEBUG_HCS)
       {
         std::wcout << "Compute system config: " << config << std::endl;
       }
@@ -497,10 +495,12 @@ namespace monza::host
       HcsWaitForOperationResultAndReport(operation.get());
       hcs_system.reset(system_handle);
 
-      if constexpr(DEBUG_HCS)
+      if constexpr (DEBUG_HCS)
       {
-        result = HcsGetComputeSystemProperties(hcs_system.get(), operation.get(),
-LR"***(
+        result = HcsGetComputeSystemProperties(
+          hcs_system.get(),
+          operation.get(),
+          LR"***(
 {
   "PropertyTypes": [ "Memory" ]
 }
@@ -508,16 +508,20 @@ LR"***(
         if (FAILED(result))
         {
           throw std::runtime_error(std::format(
-            "HcsGetComputeSystemProperties failed. {}", GetErrorMessage(result)));
+            "HcsGetComputeSystemProperties failed. {}",
+            GetErrorMessage(result)));
         }
-        std::wcout << HcsWaitForOperationResultAndReport(operation.get()) << std::endl;
+        std::wcout << HcsWaitForOperationResultAndReport(operation.get())
+                   << std::endl;
       }
 
       // Create a listener thread for the named pipe used for debug output.
-      pipe_closed.reset(CreateEventEx(nullptr, nullptr, 0, MAXIMUM_ALLOWED), CloseHandle);
+      pipe_closed.reset(
+        CreateEventEx(nullptr, nullptr, 0, MAXIMUM_ALLOWED), CloseHandle);
       if (pipe_closed.get() == nullptr)
       {
-        throw std::runtime_error(std::format("CreateEventEx failed. {}", GetErrorMessage(GetLastError())));
+        throw std::runtime_error(std::format(
+          "CreateEventEx failed. {}", GetErrorMessage(GetLastError())));
       }
       pipe_listener.reset(new std::thread([pipe_name = std::move(pipe_name),
                                            pipe_closed = pipe_closed,
@@ -629,7 +633,8 @@ LR"***(
           });
         // Waiting on all possible stopping conditions.
         // For now this is only the Win32 event, but future-proofing.
-        const HANDLE stopping_conditions[] = {system_exit.get(), pipe_closed.get()};
+        const HANDLE stopping_conditions[] = {system_exit.get(),
+                                              pipe_closed.get()};
         WaitForMultipleObjects(
           static_cast<DWORD>(std::size(stopping_conditions)),
           stopping_conditions,

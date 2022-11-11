@@ -1,9 +1,10 @@
 // Copyright Microsoft and Project Monza Contributors.
 // SPDX-License-Identifier: MIT
 
+#include "messages.h"
+
 #include <chrono>
 #include <ds/messaging.h>
-#include "messages.h"
 #include <ringbuffer_guest.h>
 
 using namespace std::chrono;
@@ -52,7 +53,8 @@ int main(int argc, char** argv)
     RINGBUFFER_WRITE_MESSAGE(example::ping, guest.writer(), TEST_MESSAGE);
     // Poll receive buffer until response received.
     auto poll_start = steady_clock::now();
-    while (!success && duration_cast<seconds>(steady_clock::now() - poll_start).count() < 1)
+    while (!success &&
+           duration_cast<seconds>(steady_clock::now() - poll_start).count() < 1)
     {
       bp.read_all(guest.reader());
     }
