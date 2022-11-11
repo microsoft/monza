@@ -1,3 +1,6 @@
+// Copyright Microsoft and Project Monza Contributors.
+// SPDX-License-Identifier: MIT
+
 #include <cores.h>
 #include <crt.h>
 #include <fp.h>

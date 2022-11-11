@@ -1,3 +1,6 @@
+// Copyright Microsoft and Project Monza Contributors.
+// SPDX-License-Identifier: MIT
+
 #include <algorithm>
 #include <hypervisor.h>
 #include <openssl/core_names.h>
