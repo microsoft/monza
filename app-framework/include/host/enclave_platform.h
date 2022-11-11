@@ -49,7 +49,8 @@ namespace monza::host
   enum class EnclaveType
   {
     QEMU,
-    HCS
+    HCS,
+    HCS_ISOLATED
   };
 
   template<typename InitializerTuple>
@@ -326,9 +327,9 @@ namespace monza::host
 
   protected:
     HcsEnclavePlatform(
-      EnclaveType type, const std::string& path, size_t num_threads)
+      EnclaveType type, const std::string& path, size_t num_threads, bool is_isolated)
     : EnclavePlatform<InitializerTuple>(num_threads),
-      instance(HCSEnclaveAbstract::create(path, num_threads, SHMEM_SIZE)),
+      instance(HCSEnclaveAbstract::create(path, num_threads, SHMEM_SIZE, is_isolated)),
       shmem_guest_base(instance->shared_memory_guest_base()),
       shmem_base(instance->shared_memory().data()),
       shmem_offset(0),
@@ -428,10 +429,18 @@ namespace monza::host
       case EnclaveType::HCS:
 #ifdef MONZA_HOST_SUPPORTS_HCS
         return std::unique_ptr<EnclavePlatform<T>>(
-          new HcsEnclavePlatform<T>(type, path, num_threads));
+          new HcsEnclavePlatform<T>(type, path, num_threads, false));
 #else
         throw std::logic_error(
           "HCS Monza enclaves are not supported in current build");
+#endif // MONZA_HOST_SUPPORTS_HCS
+      case EnclaveType::HCS_ISOLATED:
+#ifdef MONZA_HOST_SUPPORTS_HCS
+        return std::unique_ptr<EnclavePlatform<T>>(
+          new HcsEnclavePlatform<T>(type, path, num_threads, true));
+#else
+        throw std::logic_error(
+          "HCS Isolated Monza enclaves are not supported in current build");
 #endif // MONZA_HOST_SUPPORTS_HCS
     }
   }
