@@ -37,6 +37,7 @@ namespace monza::host
     static std::unique_ptr<HCSEnclaveAbstract> create(
       const std::string& image_path,
       size_t num_threads,
-      size_t shared_memory_size);
+      size_t shared_memory_size,
+      bool is_isolated);
   };
 }

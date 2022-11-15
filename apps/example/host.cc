@@ -3,8 +3,11 @@
 
 #include "messages.h"
 
+#include <chrono>
 #include <ds/messaging.h>
 #include <ringbuffer_guest.h>
+
+using namespace std::chrono;
 
 const std::string TEST_MESSAGE = "Hello world!";
 
@@ -22,6 +25,10 @@ int main(int argc, char** argv)
   if (std::string(argv[1]) == "HCS")
   {
     enclave_type = monza::host::EnclaveType::HCS;
+  }
+  else if (std::string(argv[1]) == "HCS_ISOLATED")
+  {
+    enclave_type = monza::host::EnclaveType::HCS_ISOLATED;
   }
   auto guest_path = std::string(argv[2]);
 
@@ -45,7 +52,9 @@ int main(int argc, char** argv)
     // Write ping to guest.
     RINGBUFFER_WRITE_MESSAGE(example::ping, guest.writer(), TEST_MESSAGE);
     // Poll receive buffer until response received.
-    while (!success)
+    auto poll_start = steady_clock::now();
+    while (!success &&
+           duration_cast<seconds>(steady_clock::now() - poll_start).count() < 1)
     {
       bp.read_all(guest.reader());
     }

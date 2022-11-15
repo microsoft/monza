@@ -19,9 +19,14 @@
 #include <stdexcept>
 #include <windows.h>
 
+static constexpr bool DEBUG_HCS = false;
+
 template<typename T>
 using RaiiHandle = std::
   unique_ptr<typename std::remove_pointer<T>::type, std::function<void(T)>>;
+
+template<typename T>
+using SharedHandle = std::shared_ptr<typename std::remove_pointer<T>::type>;
 
 /**
  * Convert HRESULT to system error message.
@@ -77,22 +82,57 @@ static std::wstring GuidToString(REFGUID guid)
 }
 
 /**
- * Call HcsWaitForOperationResult and process any reported errors.
+ * Call HcsWaitForOperationResult and process the result.
  * Uses Win32 naming scheme as it is helper for Win32.
  */
-static void HcsWaitForOperationResultAndReportError(HCS_OPERATION operation)
+static std::wstring HcsWaitForOperationResultAndReport(HCS_OPERATION operation)
 {
   PWSTR report_raw = nullptr;
   HRESULT result = HcsWaitForOperationResult(operation, INFINITE, &report_raw);
+  RaiiHandle<PWSTR> report(report_raw, LocalFree);
+  std::wstring report_string(report.get() == nullptr ? L"" : report.get());
   if (FAILED(result))
   {
-    RaiiHandle<PWSTR> report(report_raw, LocalFree);
-    std::wstring report_string(report.get());
     throw std::runtime_error(std::format(
       "HcsWaitForOperationResult failed. {}",
       std::string(report_string.begin(), report_string.end())));
   }
+  return report_string;
 }
+
+/**
+ * Extra permission required for guest state files.
+ * Need to use the per-instance permission.
+ * Remove permission when the instance is destroyed.
+ */
+class VmAccessGranter
+{
+  std::wstring id_string;
+  std::vector<std::wstring> paths;
+
+public:
+  VmAccessGranter(const std::wstring& id_string) : id_string(id_string), paths()
+  {}
+
+  ~VmAccessGranter()
+  {
+    for (auto& path : paths)
+    {
+      HcsRevokeVmAccess(id_string.c_str(), path.c_str());
+    }
+  }
+
+  void add_path(const std::wstring& path)
+  {
+    HRESULT result = HcsGrantVmAccess(id_string.c_str(), path.c_str());
+    if (FAILED(result))
+    {
+      throw std::runtime_error(
+        std::format("HcsGrantVmAccess failed. {}", GetErrorMessage(result)));
+    }
+    paths.push_back(path);
+  }
+};
 
 /**
  * Based on
@@ -159,7 +199,7 @@ public:
     if (response != ERROR_SUCCESS)
     {
       throw std::runtime_error(std::format(
-        "SetEntriesInAcl failed. {}", GetErrorMessage(::GetLastError())));
+        "SetEntriesInAcl failed. {}", GetErrorMessage(GetLastError())));
     }
     result.acl.reset(acl_raw);
 
@@ -169,7 +209,7 @@ public:
     {
       throw std::runtime_error(std::format(
         "InitializeSecurityDescriptor failed. {}",
-        GetErrorMessage(::GetLastError())));
+        GetErrorMessage(GetLastError())));
     }
 
     // Add the ACL to the security descriptor.
@@ -181,7 +221,7 @@ public:
     {
       throw std::runtime_error(std::format(
         "SetSecurityDescriptorDacl failed. {}",
-        GetErrorMessage(::GetLastError())));
+        GetErrorMessage(GetLastError())));
     }
 
     return result;
@@ -251,7 +291,7 @@ namespace monza::host
   "Owner": "HCSEnclave",
   "SchemaVersion": {{
     "Major": 2,
-    "Minor": 6
+    "Minor": 5
   }},
   "VirtualMachine": {{
     "StopOnReset": true,
@@ -280,8 +320,62 @@ namespace monza::host
           "SectionName": "{}",
           "StartOffset": 0,
           "Length": {},
-          "AllowGuestWrite": true
+          "AllowGuestWrite": true,
+          "HiddenFromGuest": false
         }}]
+      }}
+    }}
+  }},
+  "ShouldTerminateOnLastHandleClosed": true
+}}
+)***";
+    static constexpr std::wstring_view ISOLATED_CONFIG_TEMPLATE =
+      LR"***(
+{{
+  "Owner": "HCSEnclave",
+  "SchemaVersion": {{
+    "Major": 2,
+    "Minor": 5
+  }},
+  "VirtualMachine": {{
+    "StopOnReset": true,
+    "Chipset": {{
+      "Uefi": {{
+      }}
+    }},
+    "GuestState": {{
+      "GuestStateFilePath": "{}",
+      "GuestStateFileType" : "FileMode",
+      "ForceTransientState" : true
+    }},
+    "ComputeTopology": {{
+      "Memory": {{
+        "SizeInMB": {}
+      }},
+      "Processor": {{
+        "Count": {}
+      }}
+    }},
+    "Devices": {{
+      "ComPorts": {{
+        "0": {{
+          "NamedPipe": "{}"
+        }}
+      }},
+      "SharedMemory": {{
+        "Regions": [{{
+          "SectionName": "{}",
+          "StartOffset": 0,
+          "Length": {},
+          "AllowGuestWrite": true,
+          "HiddenFromGuest": false
+        }}]
+      }}
+    }},
+    "SecuritySettings": {{
+      "Isolation": {{
+        "IsolationType": "SecureNestedPaging",
+        "LaunchData" : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaI="
       }}
     }}
   }},
@@ -295,10 +389,12 @@ namespace monza::host
      */
 
     GUID system_id{};
+    std::unique_ptr<VmAccessGranter> access_granter = nullptr;
     RaiiHandle<HCS_SYSTEM> hcs_system = {nullptr, HcsCloseComputeSystem};
     RaiiHandle<HANDLE> shared_section = {nullptr, CloseHandle};
     RaiiHandle<uint8_t*> shared_memory_mapping = {nullptr, UnmapViewOfFile};
     std::atomic<bool> finished = false;
+    SharedHandle<HANDLE> pipe_closed = {nullptr, CloseHandle};
     // Make sure that the thread can join on destruction.
     RaiiHandle<std::thread*> pipe_listener{nullptr,
                                            [finished = &finished](auto t) {
@@ -311,7 +407,8 @@ namespace monza::host
     HCSEnclave(
       const std::string& image_path,
       size_t num_threads,
-      size_t shared_memory_size)
+      size_t shared_memory_size,
+      bool is_isolated)
     : HCSEnclaveAbstract(image_path, num_threads, shared_memory_size)
     {
       HRESULT result = S_OK;
@@ -324,6 +421,8 @@ namespace monza::host
       }
       auto id_string = GuidToString(system_id);
       std::wcout << "Compute system ID: " << id_string << std::endl;
+
+      access_granter = std::make_unique<VmAccessGranter>(id_string);
 
       // The operation is used to track completion of the async methods.
       RaiiHandle<HCS_OPERATION> operation(
@@ -347,15 +446,38 @@ namespace monza::host
       ProcessIdToSessionId(GetCurrentProcessId(), &session_id);
       auto hcs_section_name =
         std::format(HCS_SECTION_TEMPLATE, session_id, section_name);
-      auto config = std::format(
-        CONFIG_TEMPLATE,
-        escape_file_path(path.wstring()),
-        RAM_SIZE_IN_MB,
-        num_threads,
-        escape_file_path(pipe_name),
-        escape_file_path(hcs_section_name),
-        shared_memory_size);
-      std::wcout << "Compute system config: " << config << std::endl;
+      std::wstring config;
+      if (is_isolated)
+      {
+        config = std::format(
+          ISOLATED_CONFIG_TEMPLATE,
+          escape_file_path(path.wstring()),
+          RAM_SIZE_IN_MB,
+          num_threads,
+          escape_file_path(pipe_name),
+          escape_file_path(hcs_section_name),
+          shared_memory_size);
+      }
+      else
+      {
+        config = std::format(
+          CONFIG_TEMPLATE,
+          escape_file_path(path.wstring()),
+          RAM_SIZE_IN_MB,
+          num_threads,
+          escape_file_path(pipe_name),
+          escape_file_path(hcs_section_name),
+          shared_memory_size);
+      }
+      if constexpr (DEBUG_HCS)
+      {
+        std::wcout << "Compute system config: " << config << std::endl;
+      }
+
+      if (is_isolated)
+      {
+        access_granter->add_path(path.wstring());
+      }
 
       // Create the compute system and wait for the operation to finish.
       HCS_SYSTEM system_handle;
@@ -370,11 +492,39 @@ namespace monza::host
         throw std::runtime_error(std::format(
           "HcsCreateComputeSystem failed. {}", GetErrorMessage(result)));
       }
-      HcsWaitForOperationResultAndReportError(operation.get());
+      HcsWaitForOperationResultAndReport(operation.get());
       hcs_system.reset(system_handle);
 
+      if constexpr (DEBUG_HCS)
+      {
+        result = HcsGetComputeSystemProperties(
+          hcs_system.get(),
+          operation.get(),
+          LR"***(
+{
+  "PropertyTypes": [ "Memory" ]
+}
+)***");
+        if (FAILED(result))
+        {
+          throw std::runtime_error(std::format(
+            "HcsGetComputeSystemProperties failed. {}",
+            GetErrorMessage(result)));
+        }
+        std::wcout << HcsWaitForOperationResultAndReport(operation.get())
+                   << std::endl;
+      }
+
       // Create a listener thread for the named pipe used for debug output.
+      pipe_closed.reset(
+        CreateEventEx(nullptr, nullptr, 0, MAXIMUM_ALLOWED), CloseHandle);
+      if (pipe_closed.get() == nullptr)
+      {
+        throw std::runtime_error(std::format(
+          "CreateEventEx failed. {}", GetErrorMessage(GetLastError())));
+      }
       pipe_listener.reset(new std::thread([pipe_name = std::move(pipe_name),
+                                           pipe_closed = pipe_closed,
                                            &finished = finished]() {
         try
         {
@@ -412,6 +562,7 @@ namespace monza::host
           }
           std::cout << std::endl;
           std::cout << "Finished reading named pipe." << std::endl;
+          SetEvent(pipe_closed.get());
         }
         catch (const std::exception& e)
         {
@@ -450,7 +601,7 @@ namespace monza::host
         throw std::runtime_error(std::format(
           "HcsStartComputeSystem failed. {}", GetErrorMessage(result)));
       }
-      HcsWaitForOperationResultAndReportError(operation.get());
+      HcsWaitForOperationResultAndReport(operation.get());
       started = true;
     }
 
@@ -482,7 +633,8 @@ namespace monza::host
           });
         // Waiting on all possible stopping conditions.
         // For now this is only the Win32 event, but future-proofing.
-        const HANDLE stopping_conditions[] = {system_exit.get()};
+        const HANDLE stopping_conditions[] = {system_exit.get(),
+                                              pipe_closed.get()};
         WaitForMultipleObjects(
           static_cast<DWORD>(std::size(stopping_conditions)),
           stopping_conditions,
@@ -500,9 +652,10 @@ namespace monza::host
   std::unique_ptr<HCSEnclaveAbstract> HCSEnclaveAbstract::create(
     const std::string& image_path,
     size_t num_threads,
-    size_t shared_memory_size)
+    size_t shared_memory_size,
+    bool is_isolated)
   {
     return std::unique_ptr<HCSEnclave>(
-      new HCSEnclave(image_path, num_threads, shared_memory_size));
+      new HCSEnclave(image_path, num_threads, shared_memory_size, is_isolated));
   }
 }
