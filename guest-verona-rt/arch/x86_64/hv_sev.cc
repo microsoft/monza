@@ -438,7 +438,7 @@ namespace monza
           above_vtom_memory_range = std::span(
             reinterpret_cast<uint8_t*>(vmsa_settings->virtual_top_of_memory),
             above_vtom_size);
-          current_entry_end_address -= above_vtom_size;
+          current_entry_end_address = vmsa_settings->virtual_top_of_memory;
           entry_size -= above_vtom_size;
           first_vtom_entry = false;
         }
