@@ -388,7 +388,7 @@ namespace monza
 
     bool first_entry = true;
     bool first_vtom_entry = true;
-    size_t last_entry_end_address = 0;
+    address_t last_entry_end_address = 0;
     for (const auto& entry : unmeasured_loader_data->memory_map)
     {
       if (entry.is_null())
