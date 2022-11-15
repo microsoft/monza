@@ -388,14 +388,15 @@ namespace monza
 
     bool first_entry = true;
     bool first_vtom_entry = true;
-    address_t last_entry_end_address = 0;
+    snmalloc::address_t last_entry_end_address =
+      snmalloc::address_cast(heap_start);
     for (const auto& entry : unmeasured_loader_data->memory_map)
     {
       if (entry.is_null())
       {
         break;
       }
-      size_t entry_address = entry.gpa_page_offset * HV_PAGE_SIZE;
+      snmalloc::address_t entry_address = entry.gpa_page_offset * HV_PAGE_SIZE;
       size_t entry_size = entry.page_count * HV_PAGE_SIZE;
       /**
        * Validate entries using the following rules:
@@ -412,16 +413,13 @@ namespace monza
       {
         kabort();
       }
-      size_t current_entry_end_address = entry_address + entry_size;
+      snmalloc::address_t current_entry_end_address =
+        entry_address + entry_size;
+      // last_entry_end_address not used further this iteration.
+      last_entry_end_address = current_entry_end_address;
       if (
         current_entry_end_address < entry_address ||
         current_entry_end_address > (static_cast<uint64_t>(1) << 48))
-      {
-        kabort();
-      }
-      if (
-        first_entry &&
-        current_entry_end_address <= snmalloc::address_cast(heap_start))
       {
         kabort();
       }
@@ -446,7 +444,7 @@ namespace monza
         // ignored.
         else
         {
-          entry_size = 0;
+          continue;
         }
       }
       // Virtual top-of-memory handling could have used up the entire range, in
@@ -467,7 +465,6 @@ namespace monza
             {reinterpret_cast<uint8_t*>(entry_address), entry_size});
         }
       }
-      last_entry_end_address = current_entry_end_address;
     }
 
     if (

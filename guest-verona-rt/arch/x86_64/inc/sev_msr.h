@@ -35,7 +35,10 @@ namespace monza
     uint64_t content;
 
   public:
-    SevGhcbMsrSimpleRequest(uint64_t input) : content(Info | (input << 12)) {}
+    SevGhcbMsrSimpleRequest(uint64_t input) : content(Info | (input << 12))
+    {
+      kernel_assert(input >> 48 == 0);
+    }
 
     uint64_t raw() const
     {
@@ -58,7 +61,7 @@ namespace monza
 
     bool success() const
     {
-      return ((content & 0xFFF) == Info);
+      return ((content & 0xFFF) == Info && (content >> 48) == 0);
     }
 
     uint64_t value() const
