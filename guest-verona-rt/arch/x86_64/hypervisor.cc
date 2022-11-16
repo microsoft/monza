@@ -11,6 +11,7 @@
 #include <msr.h>
 #include <novirt.h>
 #include <serial.h>
+#include <sev.h>
 #include <shared_arch.h>
 
 namespace monza
@@ -23,7 +24,7 @@ namespace monza
   {
     // The default shared memory is placed just below the 1TB point.
     // Largest address valid in QEMU.
-    constexpr uint64_t TOP_OF_MEMORY = static_cast<uint64_t>(1) << 40;
+    constexpr uint64_t TOP_OF_MEMORY = 1ULL << 40;
     io_shared_range = std::span<uint8_t, IO_SHARED_MEMORY_SIZE>(
       snmalloc::unsafe_from_uintptr<uint8_t>(
         TOP_OF_MEMORY - IO_SHARED_MEMORY_SIZE),
@@ -77,7 +78,6 @@ namespace monza
   void (*notify_using_memory)(std::span<uint8_t> range) =
     [](std::span<uint8_t>) { return; };
   // Virtualized methods for MSR access
-  uint64_t (*read_msr_virt)(uint32_t msr) = &read_msr;
   void (*write_msr_virt)(uint32_t msr, uint64_t value) = &write_msr;
   // Virtualized methods for core management
   extern "C" void (*shutdown)() = &shutdown_generic;
@@ -95,6 +95,13 @@ namespace monza
 
   extern "C" void setup_hypervisor()
   {
+    uint64_t sev_features = read_msr(SEV_MSR_SEV_FEATURES);
+    if (sev_features)
+    {
+      init_hyperv_sev();
+      return;
+    }
+
     uint32_t unused;
     uint32_t result;
     __get_cpuid(

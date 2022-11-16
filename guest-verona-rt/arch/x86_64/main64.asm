@@ -3,6 +3,7 @@
 
 global start
 global triple_fault
+global loop
 
 extern __early_stack_start
 extern __early_stack_end
@@ -99,6 +100,12 @@ triple_fault:
     int 0
     ; Should never reach this point
     ret
+
+; Infinite loop with processor backoff
+; Used for debugging on platforms without early COM port
+loop:
+    hlt
+    jmp loop
 
 align 16
 fake_idtr:                      ; Fake Interrupt Descriptor Table Register

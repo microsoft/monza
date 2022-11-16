@@ -15,3 +15,4 @@ target_compile_options(monza_rt_arch PRIVATE $<$<COMPILE_LANGUAGE:ASM_NASM>:-I${
 # Many weird casts need to occur between C++/ASM/hypervisor.
 target_compile_options(monza_rt_arch PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-fno-strict-aliasing>)
 target_link_libraries(monza_rt_arch PRIVATE monza_kernel_compatibility)
+target_link_libraries(monza_rt_arch PRIVATE monza_openssl_headers)

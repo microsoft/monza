@@ -261,7 +261,7 @@ warnings_high()
 
 enable_testing()
 
-macro(add_qemu_compatible_image new_target target)
+function(add_qemu_compatible_image new_target target)
   set(image_file ${new_target}.img)
   add_custom_target(${new_target}
       DEPENDS ${image_file}
@@ -276,7 +276,7 @@ macro(add_qemu_compatible_image new_target target)
       DEPENDS ${target} bootloader.sys
       BYPRODUCTS ${new_target}.bin
     )
-endmacro()
+endfunction()
 
 macro(compartment_target_to_linkage_name compartment_name target)
   string(REPLACE "-" "_" compartment_name ${target})
