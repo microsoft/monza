@@ -388,8 +388,7 @@ namespace monza
 
     bool first_entry = true;
     bool first_vtom_entry = true;
-    snmalloc::address_t last_entry_end_address =
-      snmalloc::address_cast(heap_start);
+    snmalloc::address_t last_entry_end_address = 0;
     for (const auto& entry : unmeasured_loader_data->memory_map)
     {
       if (entry.is_null())
@@ -417,11 +416,16 @@ namespace monza
       {
         kabort();
       }
+      if (entry_address < last_entry_end_address)
+      {
+        kabort();
+      }
+      // last_entry_end_address not used further this iteration.
+      last_entry_end_address = current_entry_end_address;
       // The first entry does not have to start at the heap start, but needs to
       // include it
       if (first_entry)
       {
-        // last_entry_end_address is the start address of the heap here.
         if (
           snmalloc::address_cast(heap_start) < entry_address ||
           snmalloc::address_cast(heap_start) >= current_entry_end_address)
@@ -429,12 +433,6 @@ namespace monza
           kabort();
         }
       }
-      else if (entry_address < last_entry_end_address)
-      {
-        kabort();
-      }
-      // last_entry_end_address not used further this iteration.
-      last_entry_end_address = current_entry_end_address;
       // Check for overlap with virtual top-of-memory and carve out visible
       // range.
       if (
