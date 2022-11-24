@@ -5,7 +5,7 @@
 
 #include <time.h>
 
-struct tm* gmtime_r(const time_t* time, struct tm* result)
+static struct tm* gmtime_r(const time_t* time, struct tm* result)
 {
   if (gmtime_s(result, time) != 0)
   {

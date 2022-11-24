@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.15)
 
 include(CMakePrintHelpers)
 
-set(CMAKE_C_COMPILER clang)
-set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER clang-cl)
+set(CMAKE_CXX_COMPILER clang-cl)
 
 project(
   monza_windows
