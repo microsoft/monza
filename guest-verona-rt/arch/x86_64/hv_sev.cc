@@ -423,8 +423,8 @@ namespace monza
       {
         // last_entry_end_address is the start address of the heap here.
         if (
-          last_entry_end_address < entry_address ||
-          last_entry_end_address >= current_entry_end_address)
+          snmalloc::address_cast(heap_start) < entry_address ||
+          snmalloc::address_cast(heap_start) >= current_entry_end_address)
         {
           kabort();
         }
