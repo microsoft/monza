@@ -409,20 +409,32 @@ namespace monza
       {
         kabort();
       }
-      if (entry_address < last_entry_end_address)
-      {
-        kabort();
-      }
       snmalloc::address_t current_entry_end_address =
         entry_address + entry_size;
-      // last_entry_end_address not used further this iteration.
-      last_entry_end_address = current_entry_end_address;
       if (
         current_entry_end_address < entry_address ||
         current_entry_end_address > (static_cast<uint64_t>(1) << 48))
       {
         kabort();
       }
+      // The first entry does not have to start at the heap start, but needs to
+      // include it
+      if (first_entry)
+      {
+        // last_entry_end_address is the start address of the heap here.
+        if (
+          last_entry_end_address < entry_address ||
+          last_entry_end_address >= current_entry_end_address)
+        {
+          kabort();
+        }
+      }
+      else if (entry_address < last_entry_end_address)
+      {
+        kabort();
+      }
+      // last_entry_end_address not used further this iteration.
+      last_entry_end_address = current_entry_end_address;
       // Check for overlap with virtual top-of-memory and carve out visible
       // range.
       if (
