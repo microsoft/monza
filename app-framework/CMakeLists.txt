@@ -18,8 +18,14 @@ target_include_directories(monza-app-host INTERFACE
   ${CCF_REPO_DIR}/src
   ${CCF_REPO_DIR}/3rdparty/exported
 )
+target_compile_options(monza-app-host INTERFACE
+  -stdlib=libc++
+)
 target_link_libraries(monza-app-host INTERFACE
   rt
+)
+target_link_options(monza-app-host INTERFACE
+  -stdlib=libc++
 )
 
 add_library(monza-app-guest INTERFACE)
