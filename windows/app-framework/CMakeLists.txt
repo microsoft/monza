@@ -15,11 +15,11 @@ target_compile_definitions(monza-app-host PRIVATE
 target_include_directories(monza-app-host PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../app-framework/include/host
 )
-target_compile_definitions(monza-app-host INTERFACE
+target_compile_definitions(monza-app-host PUBLIC
   MONZA_HOST_SUPPORTS_HCS
   CCF_LOGGER_NO_DEPRECATE
 )
-target_include_directories(monza-app-host INTERFACE
+target_include_directories(monza-app-host PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../../app-framework/include/common
   ${CMAKE_CURRENT_SOURCE_DIR}/../../app-framework/include/host
   ${CCF_REPO_DIR}/include
@@ -27,8 +27,11 @@ target_include_directories(monza-app-host INTERFACE
   ${CCF_REPO_DIR}/3rdparty/exported
 )
 target_compile_options(monza-app-host INTERFACE
-  -include ${CMAKE_CURRENT_SOURCE_DIR}/../include/nix2win.h
+  /FI${CMAKE_CURRENT_SOURCE_DIR}/../include/nix2win.h
 )
-target_link_libraries(monza-app-host INTERFACE
+target_compile_options(monza-app-host PUBLIC
+  /EHs
+)
+target_link_libraries(monza-app-host PUBLIC
   computecore rpcrt4 ntdll
 )

@@ -642,8 +642,7 @@ namespace monza::host
           INFINITE);
       }
       started = false;
-      // Notify the pipe listener that execution finished.
-      finished.store(true);
+      pipe_listener->join();
     }
 
     friend HCSEnclaveAbstract;

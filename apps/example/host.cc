@@ -35,7 +35,8 @@ int main(int argc, char** argv)
   try
   {
     monza::host::RingbufferGuest guest(enclave_type, guest_path, 1);
-    std::cout << "Create guest instance using path " << guest_path << std::endl;
+    std::cout << "Created guest instance using path " << guest_path
+              << std::endl;
     messaging::BufferProcessor bp("Host");
 
     // Set up handler for pong to be used while polling.
