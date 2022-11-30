@@ -11,6 +11,7 @@
 #include <ComputeCore.h>
 #include <aclapi.h>
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -411,6 +412,8 @@ namespace monza::host
       bool is_isolated)
     : HCSEnclaveAbstract(image_path, num_threads, shared_memory_size)
     {
+      auto start = std::chrono::high_resolution_clock::now();
+
       HRESULT result = S_OK;
       // Unique id to allow multiple instances on the same machine.
       result = CoCreateGuid(&system_id);
@@ -525,7 +528,8 @@ namespace monza::host
       }
       pipe_listener.reset(new std::thread([pipe_name = std::move(pipe_name),
                                            pipe_closed = pipe_closed,
-                                           &finished = finished]() {
+                                           &finished = finished,
+                                           start]() {
         try
         {
           RaiiHandle<HANDLE> pipe(
@@ -535,7 +539,7 @@ namespace monza::host
               0,
               NULL,
               OPEN_EXISTING,
-              FILE_ATTRIBUTE_NORMAL,
+              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING,
               NULL),
             CloseHandle);
           if (pipe.get() == INVALID_HANDLE_VALUE)
@@ -544,25 +548,58 @@ namespace monza::host
               "Opening named pipe failed. {}",
               GetErrorMessage(GetLastError())));
           }
-          while (!finished.load())
+          // Track if a line is split across multiple calls to read
+          bool split = false;
+          while (true)
           {
             char buffer[1024];
             DWORD bytes_read = 0;
-            // Read up to size - 1 bytes to allow space for NUL terminator.
             if (!ReadFile(
-                  pipe.get(), buffer, std::size(buffer) - 1, &bytes_read, NULL))
+                  pipe.get(), buffer, std::size(buffer), &bytes_read, NULL))
             {
-              break;
+              if (GetLastError() != ERROR_MORE_DATA)
+              {
+                std::cout << std::endl
+                          << "Guest closed debug pipe!" << std::endl;
+                SetEvent(pipe_closed.get());
+                return;
+              }
             }
             if (bytes_read > 0)
             {
-              buffer[bytes_read] = '\0';
-              std::cout << buffer;
+              std::string_view sv{buffer, bytes_read};
+              auto now = std::chrono::high_resolution_clock::now();
+              bool more;
+
+              // Break at newlines and output time at start of each line.
+              do
+              {
+                auto pos = sv.find_first_of('\n');
+                std::string_view curr = sv;
+                more = pos != std::string_view::npos;
+                if (more)
+                {
+                  curr = sv.substr(0, pos + 1);
+                  sv = sv.substr(pos + 1);
+                }
+
+                if (!split)
+                {
+                  auto time =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                      now - start)
+                      .count();
+                  std::cout << std::setw(6) << time << "ms:";
+                }
+
+                std::cout << curr;
+
+                split = false;
+              } while (more);
+              split = true;
+              std::cout << std::flush;
             }
           }
-          std::cout << std::endl;
-          std::cout << "Finished reading named pipe." << std::endl;
-          SetEvent(pipe_closed.get());
         }
         catch (const std::exception& e)
         {
