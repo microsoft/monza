@@ -571,13 +571,12 @@ namespace monza::host
             {
               std::string_view sv{buffer, bytes_read};
               auto now = std::chrono::high_resolution_clock::now();
-              bool has_newline;
 
               // Break at newlines and output time at start of each line.
               while (sv.size() != 0)
               {
                 auto pos = sv.find_first_of('\n');
-                has_newline = pos != std::string_view::npos;
+                bool has_newline = pos != std::string_view::npos;
 
                 std::string_view curr =
                   has_newline ? sv.substr(0, pos + 1) : sv;
