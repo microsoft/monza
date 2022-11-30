@@ -145,9 +145,10 @@ class SecurityAttributes
   RaiiHandle<PACL> acl{nullptr, LocalFree};
   RaiiHandle<PSECURITY_DESCRIPTOR> descriptor{
     LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH), LocalFree};
-  SECURITY_ATTRIBUTES implementation{.nLength = sizeof(SECURITY_ATTRIBUTES),
-                                     .lpSecurityDescriptor = descriptor.get(),
-                                     .bInheritHandle = false};
+  SECURITY_ATTRIBUTES implementation{
+    .nLength = sizeof(SECURITY_ATTRIBUTES),
+    .lpSecurityDescriptor = descriptor.get(),
+    .bInheritHandle = false};
 
   SecurityAttributes() {}
 
@@ -397,12 +398,12 @@ namespace monza::host
     std::atomic<bool> finished = false;
     SharedHandle<HANDLE> pipe_closed = {nullptr, CloseHandle};
     // Make sure that the thread can join on destruction.
-    RaiiHandle<std::thread*> pipe_listener{nullptr,
-                                           [finished = &finished](auto t) {
-                                             finished->store(true);
-                                             t->join();
-                                             delete (t);
-                                           }};
+    RaiiHandle<std::thread*> pipe_listener{
+      nullptr, [finished = &finished](auto t) {
+        finished->store(true);
+        t->join();
+        delete (t);
+      }};
     bool started = false;
 
     HCSEnclave(
@@ -573,25 +574,14 @@ namespace monza::host
               bool has_newline;
 
               // Break at newlines and output time at start of each line.
-              do
+              while (sv.size() != 0)
               {
-                if (sv.size() == 0)
-                {
-                  // Previous iteration must have consumed all the data
-                  // so there is nothing after the last newline.
-                  partial_line = false;
-                  break;
-                }
-
                 auto pos = sv.find_first_of('\n');
                 has_newline = pos != std::string_view::npos;
 
-                std::string_view curr = sv;
-                if (has_newline)
-                {
-                  curr = sv.substr(0, pos + 1);
-                  sv = sv.substr(pos + 1);
-                }
+                std::string_view curr =
+                  has_newline ? sv.substr(0, pos + 1) : sv;
+                sv.remove_prefix(curr.size());
 
                 if (!partial_line)
                 {
@@ -604,7 +594,7 @@ namespace monza::host
 
                 std::cout << curr;
                 partial_line = !has_newline;
-              } while (has_newline);
+              }
               std::cout << std::flush;
             }
           }
@@ -678,8 +668,8 @@ namespace monza::host
           });
         // Waiting on all possible stopping conditions.
         // For now this is only the Win32 event, but future-proofing.
-        const HANDLE stopping_conditions[] = {system_exit.get(),
-                                              pipe_closed.get()};
+        const HANDLE stopping_conditions[] = {
+          system_exit.get(), pipe_closed.get()};
         WaitForMultipleObjects(
           static_cast<DWORD>(std::size(stopping_conditions)),
           stopping_conditions,
