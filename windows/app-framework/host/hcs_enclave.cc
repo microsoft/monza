@@ -548,8 +548,9 @@ namespace monza::host
               "Opening named pipe failed. {}",
               GetErrorMessage(GetLastError())));
           }
-          // Track if a line is split across multiple calls to read
-          bool split = false;
+          // Track if a outputing a line that is split across multiple calls to
+          // read
+          bool partial_line = false;
           while (true)
           {
             char buffer[1024];
@@ -569,21 +570,30 @@ namespace monza::host
             {
               std::string_view sv{buffer, bytes_read};
               auto now = std::chrono::high_resolution_clock::now();
-              bool more;
+              bool has_newline;
 
               // Break at newlines and output time at start of each line.
               do
               {
+                if (sv.size() == 0)
+                {
+                  // Previous iteration must have consumed all the data
+                  // so there is nothing after the last newline.
+                  partial_line = false;
+                  break;
+                }
+
                 auto pos = sv.find_first_of('\n');
+                has_newline = pos != std::string_view::npos;
+
                 std::string_view curr = sv;
-                more = pos != std::string_view::npos;
-                if (more)
+                if (has_newline)
                 {
                   curr = sv.substr(0, pos + 1);
                   sv = sv.substr(pos + 1);
                 }
 
-                if (!split)
+                if (!partial_line)
                 {
                   auto time =
                     std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -593,10 +603,8 @@ namespace monza::host
                 }
 
                 std::cout << curr;
-
-                split = false;
-              } while (more);
-              split = true;
+                partial_line = !has_newline;
+              } while (has_newline);
               std::cout << std::flush;
             }
           }
