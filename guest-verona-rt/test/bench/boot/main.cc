@@ -8,9 +8,9 @@
  * Subtract 0x600000 which is the ELF start address.
  */
 constexpr size_t BASE_LOADED_IMAGE = 0x92f000 - 0x600000;
-constexpr size_t TARGET_LOADED_IMAGE = 1024 * 1024 * 4;
+constexpr size_t TARGET_LOADED_IMAGE = BASE_LOADED_IMAGE; // 1024 * 1024 * 4;
 static_assert(
-  BASE_LOADED_IMAGE < TARGET_LOADED_IMAGE,
+  BASE_LOADED_IMAGE <= TARGET_LOADED_IMAGE,
   "Must be at least the minimum size.");
 
 constexpr uint8_t MARKER_DATA[] = {'X'};
