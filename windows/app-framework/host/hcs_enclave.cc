@@ -145,10 +145,9 @@ class SecurityAttributes
   RaiiHandle<PACL> acl{nullptr, LocalFree};
   RaiiHandle<PSECURITY_DESCRIPTOR> descriptor{
     LocalAlloc(LPTR, SECURITY_DESCRIPTOR_MIN_LENGTH), LocalFree};
-  SECURITY_ATTRIBUTES implementation{
-    .nLength = sizeof(SECURITY_ATTRIBUTES),
-    .lpSecurityDescriptor = descriptor.get(),
-    .bInheritHandle = false};
+  SECURITY_ATTRIBUTES implementation{.nLength = sizeof(SECURITY_ATTRIBUTES),
+                                     .lpSecurityDescriptor = descriptor.get(),
+                                     .bInheritHandle = false};
 
   SecurityAttributes() {}
 
@@ -398,12 +397,12 @@ namespace monza::host
     std::atomic<bool> finished = false;
     SharedHandle<HANDLE> pipe_closed = {nullptr, CloseHandle};
     // Make sure that the thread can join on destruction.
-    RaiiHandle<std::thread*> pipe_listener{
-      nullptr, [finished = &finished](auto t) {
-        finished->store(true);
-        t->join();
-        delete (t);
-      }};
+    RaiiHandle<std::thread*> pipe_listener{nullptr,
+                                           [finished = &finished](auto t) {
+                                             finished->store(true);
+                                             t->join();
+                                             delete (t);
+                                           }};
     bool started = false;
 
     HCSEnclave(
@@ -667,8 +666,8 @@ namespace monza::host
           });
         // Waiting on all possible stopping conditions.
         // For now this is only the Win32 event, but future-proofing.
-        const HANDLE stopping_conditions[] = {
-          system_exit.get(), pipe_closed.get()};
+        const HANDLE stopping_conditions[] = {system_exit.get(),
+                                              pipe_closed.get()};
         WaitForMultipleObjects(
           static_cast<DWORD>(std::size(stopping_conditions)),
           stopping_conditions,
