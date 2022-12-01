@@ -347,7 +347,7 @@ namespace monza::host
       else
       {
         throw std::runtime_error(
-          "No enough enclave shared memory for initialization arguments.");
+          "Not enough enclave shared memory for initialization arguments.");
       }
     }
 
@@ -403,7 +403,7 @@ namespace monza::host
       else
       {
         throw std::runtime_error(
-          "No enough enclave shared memory for allocation.");
+          "Not enough enclave shared memory for allocation.");
       }
     }
 

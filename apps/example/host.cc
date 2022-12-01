@@ -30,6 +30,16 @@ int main(int argc, char** argv)
   {
     enclave_type = monza::host::EnclaveType::HCS_ISOLATED;
   }
+  else if (std::string(argv[1]) == "QEMU")
+  {
+    enclave_type = monza::host::EnclaveType::QEMU;
+  }
+  else
+  {
+    std::cout << "TYPE must be 'HCS', 'HCS_ISOLATED' or 'QEMU'." << std::endl;
+    exit(-1);
+  }
+
   auto guest_path = std::string(argv[2]);
 
   try
