@@ -39,6 +39,31 @@ set(MONZA_OPENSSL_BUILD_PATH ${CMAKE_CURRENT_BINARY_DIR}/openssl)
 set(MONZA_OPENSSL_LIBCRYPTO_PATH ${MONZA_OPENSSL_BUILD_PATH}/libcrypto.a)
 set(MONZA_OPENSSL_LIBSSL_PATH ${MONZA_OPENSSL_BUILD_PATH}/libssl.a)
 
+set(MONZA_OPENSSL_DISABLE_REQUIRED
+  no-pic
+  no-afalgeng
+  no-ui-console no-secure-memory
+  no-stdio no-posix-io no-sock
+  no-randfile no-file-store no-directories
+)
+
+set(MONZA_OPENSSL_DISABLE_OPTIONAL
+  # Disable unused TLS variants
+  no-tls1 no-tls1_1 no-tls1_2 no-dtls no-ktls no-ssl-trace
+  # Disable unused crypto
+  no-aria no-bf no-blake2 no-camellia no-cast no-chacha no-cmp no-cms no-comp no-ct
+  no-des no-dgram no-dsa no-gost no-idea no-md2 no-md4 no-mdc2 no-multiblock
+  no-nextprotoneg no-ocb no-ocsp no-padlockeng no-pinshared no-poly1305
+  no-rc2 no-rc4 no-rc5 no-rfc3779 no-rmd160
+  no-scrypt no-sctp no-siphash no-siv no-sm2 no-sm3 no-sm4 no-srp no-srtp
+  no-ts no-whirlpool
+  # Disable unused features
+  no-autoalginit
+  no-autoerrinit
+  no-autoload-config
+  no-cached-fetch
+)
+
 # Import the OpenSSL Makefile target and configure it for Monza.
 # The Monza configuration uses the UEFI defines and disables unused functionality.
 # Depends on monza_openssl_compatibility to make sure that all headers are available already.
@@ -50,11 +75,9 @@ ExternalProject_Add(openssl
       "CC=${CMAKE_C_COMPILER}"
       "AR=${CMAKE_AR}"
       "RANLIB=${CMAKE_RANLIB}"
-      no-pic no-shared
-      no-ssl3 no-tls1 no-tls1_1 no-tls1_2 no-dtls
-      no-afalgeng
-      no-ui-console no-secure-memory no-randfile no-file-store no-directories
-      no-stdio no-posix-io no-sock --with-rand-seed=getrandom
+      ${MONZA_OPENSSL_DISABLE_REQUIRED}
+      ${MONZA_OPENSSL_DISABLE_OPTIONAL}
+      --with-rand-seed=getrandom
       ${MONZA_OPENSSL_CFLAGS}
       -DOPENSSL_SYS_LINUX -DOPENSSL_NO_MUTEX_ERRORCHECK -DNO_SYSLOG -DOSSL_IMPLEMENT_GETAUXVAL
   BUILD_COMMAND make build_generated && make depend && env bash -c "make libcrypto.a libssl.a -j \${CMAKE_BUILD_PARALLEL_LEVEL:-${N}}"
